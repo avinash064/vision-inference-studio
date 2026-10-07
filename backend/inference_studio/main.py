@@ -42,7 +42,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     engine = ExecutionEngine(validator, assets, manager, config.workspace_dir / "previews")
     app = FastAPI(title="Vision Inference Studio", version="0.1.0")
     app.state.services = Services(config, nodes, models, weights, assets, manager, validator, engine, WorkflowStore(config.workflows_dir))
-    app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
+    app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:5173", "http://127.0.0.1:5173", "http://localhost:5174", "http://127.0.0.1:5174"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
     app.include_router(router)
     app.mount("/previews", StaticFiles(directory=config.workspace_dir / "previews"), name="previews")
 
@@ -58,4 +58,3 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
 
 app = create_app()
-
