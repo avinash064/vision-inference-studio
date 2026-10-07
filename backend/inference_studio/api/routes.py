@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
 
 from inference_studio.adapters import ModelConfig
@@ -40,6 +42,28 @@ def list_devices():
     except ImportError:
         pass
     return devices
+
+
+@router.get("/benchmarks")
+def list_benchmarks(request: Request):
+    root = services(request).settings.workspace_dir / "benchmarks"
+    reports = []
+    for path in sorted(root.glob("run_*.json"), key=lambda item: item.stat().st_mtime, reverse=True):
+        try:
+            reports.append({"run_id": path.stem, **json.loads(path.read_text(encoding="utf-8"))})
+        except (OSError, json.JSONDecodeError):
+            continue
+    return reports
+
+
+@router.get("/benchmarks/{run_id}")
+def get_benchmark(run_id: str, request: Request):
+    if not run_id.startswith("run_") or not run_id[4:].isalnum():
+        raise HTTPException(404, "Unknown benchmark")
+    path = services(request).settings.workspace_dir / "benchmarks" / f"{run_id}.json"
+    if not path.is_file():
+        raise HTTPException(404, "Unknown benchmark")
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
 @router.get("/weights")

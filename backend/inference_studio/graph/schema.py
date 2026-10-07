@@ -15,7 +15,7 @@ class Edge(BaseModel):
 
 class Workflow(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    version: str = "0.1"
+    version: str = "0.2"
     name: str = "Untitled workflow"
     nodes: list[NodeInstance] = Field(default_factory=list)
     edges: list[Edge] = Field(default_factory=list)
@@ -32,4 +32,3 @@ class ValidationResult(BaseModel):
     valid: bool
     issues: list[ValidationIssue]
     order: list[str] = Field(default_factory=list)
-

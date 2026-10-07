@@ -10,6 +10,7 @@ frontend/vite.config.js
 frontend/vite.config.d.ts
 workspace/assets/*
 workspace/previews/*
+workspace/benchmarks/*
 workspace/*.json
 weights/yolo/*
 weights/rfdetr/*
@@ -18,5 +19,6 @@ weights/onnx/*
 workflows/*.json
 !workspace/assets/.gitkeep
 !workspace/previews/.gitkeep
+!workspace/benchmarks/.gitkeep
 !weights/**/.gitkeep
 !workflows/.gitkeep

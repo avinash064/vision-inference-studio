@@ -33,7 +33,7 @@ class WorkflowStore:
         for path in sorted(self.root.glob("wf_*.json")):
             try:
                 data = json.loads(path.read_text(encoding="utf-8"))
-                values.append({"workflow_id": path.stem, "name": data.get("name", "Untitled workflow"), "version": data.get("version", "0.1")})
+                values.append({"workflow_id": path.stem, "name": data.get("name", "Untitled workflow"), "version": data.get("version", "0.2")})
             except (OSError, json.JSONDecodeError):
                 continue
         return values

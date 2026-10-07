@@ -28,6 +28,5 @@ class Settings(BaseModel):
         )
 
     def prepare(self) -> None:
-        for path in (self.workspace_dir / "assets", self.workspace_dir / "previews", self.weights_dir, self.workflows_dir):
+        for path in (self.workspace_dir / "assets", self.workspace_dir / "previews", self.workspace_dir / "benchmarks", self.weights_dir, self.workflows_dir):
             path.mkdir(parents=True, exist_ok=True)
-

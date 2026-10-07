@@ -62,11 +62,16 @@ class ModelManager:
         entry = self._entry(config)
         async with entry.lock:
             if entry.state == ModelState.LOADED and entry.loaded is not None:
+                # Confidence is a run-time setting and does not identify the
+                # checkpoint. Update it without deserializing weights again.
+                entry.config = config
+                entry.loaded.config = config
                 return entry.loaded
             entry.state, entry.error = ModelState.LOADING, None
             try:
                 weight = self.weights.get(config.weight_id, config.family)
                 entry.loaded = await asyncio.to_thread(entry.adapter.load, config, __import__("pathlib").Path(weight.path))
+                entry.config = config
                 entry.state = ModelState.LOADED
                 return entry.loaded
             except Exception as exc:

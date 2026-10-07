@@ -1,8 +1,8 @@
-# Vision Inference Studio v0.1
+# Vision Inference Studio v0.2
 
 A local, node-based computer-vision inference workbench built independently with React Flow and FastAPI. Compose a typed DAG, upload assets and model weights through opaque IDs, validate the workflow, and run image or sequential video inference while results stream back over WebSocket.
 
-> Status: the first real Image → Universal Model → Detection Preview milestone is complete for both RF-DETR and YOLO on the local CUDA GPU. The same saved three-node graph was exercised through the backend with real checkpoints; browser acceptance is documented in [Acceptance status](#acceptance-status). DINOv3 and real video remain outside this milestone and are not claimed as verified.
+> Status: real image and sequential video inference are complete for RF-DETR and YOLO on the local CUDA GPU. Both families use the same universal Model node, standardized detections, renderer, and graph executor. Browser-driven video acceptance includes live previews, pause/resume/cancel, 100-frame benchmarks, bounded preview retention, and a 300-frame memory run. DINOv3 remains outside the verified milestone.
 
 ## Architecture
 
@@ -30,7 +30,15 @@ Topological planner → ExecutionEngine → WebSocket events
                               │
                               ▼
                        RendererRegistry
-                    detection / feature / tensor
+                       detection / feature / tensor
+
+Video asset → VideoReader → frame scheduler → cached ModelManager handle
+                                      │
+                                      ▼
+                         DetectionRenderer → bounded JPEG slots
+                                      │
+                                      ▼
+                          latest-frame WebSocket delivery
 ```
 
 The five boundaries are explicit:
@@ -56,6 +64,7 @@ vision-inference-studio/
 │   │   ├── nodes/             # definitions, registry, runtime values
 │   │   ├── renderers/         # detection, feature, tensor, registry
 │   │   ├── results/           # standardized Pydantic results/metrics
+│   │   ├── video/             # sequential reader and benchmark collector
 │   │   ├── config.py
 │   │   └── main.py
 │   └── tests/
@@ -140,6 +149,8 @@ The backend Dockerfile supports `--build-arg INSTALL_RUNTIMES=1`. NVIDIA contain
 7. Toggle **Original** / **Prediction** in the dock and inspect preprocessing, inference, postprocessing, total time, object count, GPU allocated/reserved/peak memory, and device name.
 8. Video decoding is sequential; Pause/Resume/Stop operate at frame checkpoints without buffering the whole file.
 
+For video, configure the Video source with `frame_stride`, warm-up frames, and an optional benchmark-frame limit. A stride of 1 infers every source frame; a stride of 5 infers source frames 0, 5, 10, and so on while retaining source timestamps. Models are loaded once by the Model node and reused for every frame.
+
 Saved example shapes are under `workflows/examples/`; replace their placeholder asset and weight IDs with values returned by uploads.
 
 ## Supported nodes
@@ -175,6 +186,8 @@ GET  /api/v1/nodes
 GET  /api/v1/models
 GET  /api/v1/models/loaded
 GET  /api/v1/devices
+GET  /api/v1/benchmarks
+GET  /api/v1/benchmarks/{run_id}
 GET  /api/v1/weights
 POST /api/v1/weights
 POST /api/v1/models/load
@@ -229,7 +242,18 @@ PYTHONPATH=backend /home/avinash/venv/bin/pytest -q backend/tests
 cd frontend && npm run build
 ```
 
-The suite covers the node/model registries, typed valid and invalid connections, cycles and topological ordering, path-safe weight/asset registration, model caching/unload, graph execution, standard result serialization, and renderer selection. GPU/model integration is intentionally separate because it needs runtime-specific weights and drivers.
+The suite covers the node/model registries, typed valid and invalid connections, cycles and topological ordering, path-safe weight/asset registration, model caching/unload, image graph execution, video metadata, sequential read/seek, stride and timestamps, frame-result serialization, benchmark aggregation, model reuse, bounded previews, pause/resume/cancel, and renderer selection. GPU/model integration remains separate because it needs runtime-specific weights and drivers.
+
+## Video runtime and benchmark behavior
+
+- `VideoReader` owns OpenCV open, sequential decode, seek, metadata, and close behavior. Frames are never accumulated in memory.
+- The executor owns stride scheduling and calls the existing frame-level `adapter.predict(image)` contract. Adapters contain no video loops.
+- The Model node loads or reuses one cached handle before frame iteration. Confidence can change between runs without checkpoint deserialization.
+- Warm-up frames are excluded from benchmark distributions. CUDA timing remains synchronized in the adapter.
+- Live preview uses ten rotating JPEG slots per run. WebSocket subscribers retain only the newest pending frame while lifecycle/control events remain lossless.
+- Pause is acknowledged at the next frame boundary. Resume continues with the existing reader position. Cancel closes the reader, persists the partial benchmark, and leaves the reusable model loaded.
+- Benchmark JSON is written atomically under `workspace/benchmarks/`; the UI retains completed YOLO/RF-DETR reports in a comparison table.
+- Latency distributions include count, mean, median/p50, p90, p95, p99, minimum, and maximum for decode, preprocessing, inference, postprocessing, rendering, publish queueing, and total frame time.
 
 ## Acceptance status
 
@@ -241,16 +265,21 @@ The suite covers the node/model registries, typed valid and invalid connections,
 | YOLO real inference | **Passed on CUDA** using `best.pt` and the saved `wf_yoloacceptance` graph. It produced 4 detections on `cam04.jpg`; cold total was 683.1 ms with 87.8 MB allocated, 350 MB reserved, and 262.3 MB peak GPU memory. The prediction preview was visually checked. |
 | RF-DETR real inference | **Passed on CUDA** using the official legacy `rf-detr-large.pth` and saved `wf_rfdetracceptance` graph. It produced 1 `truck` detection at 0.489 confidence; cold total was 749.8 ms with 534.6 MB allocated, 820 MB reserved, and 682.9 MB peak GPU memory. The prediction preview was visually checked. |
 | DINOv3 real feature output | Not run; no compatible DINOv3 checkpoint was available |
-| Real video inference | Pipeline implemented with sequential OpenCV decode and WebSocket frames; not run against a real installed model runtime |
+| YOLO real video inference | **Passed on CUDA** on the 1920×1080, 20 FPS `cam04_44m_acceptance.mp4`: 2 warm-up + 100 measured frames, 27.7 ms median / 31.0 ms p95 inference, 37.4 ms median end-to-end, 35.9 model FPS, 26.6 end-to-end FPS, and 262 MB peak allocated VRAM |
+| RF-DETR real video inference | **Passed on CUDA** using the identical video graph and source: 2 warm-up + 100 measured frames, 83.1 ms median / 100.8 ms p95 inference, 94.5 ms median end-to-end, 11.6 model FPS, 10.3 end-to-end FPS, and 762 MB peak allocated VRAM |
+| Video controls | Browser-driven pause held the displayed frame stable, resume advanced from the preserved position, and cached-model stop runs reached `CANCELLED` for both families |
+| Long-run memory/retention | A 320-frame real 1080p clip processed 302 inferred frames (300 measured). RSS grew 14.6 MB after warm-up/model reuse, GPU allocation remained bounded, and only ten preview files were retained for the completed run |
 
-The normal suite passes in `/home/avinash/venv` (`14 passed`, with 2 runtime-gated tests skipped when their environment variables are absent). The dedicated real RF-DETR adapter integration test also passes on CUDA. This completes the scoped image-detection milestone; it does not imply DINOv3 or video acceptance.
+The normal suite passes in `/home/avinash/venv` (`18 passed`, with 4 runtime-gated image/video integrations skipped when their environment variables are absent). Dedicated real image adapter checks and browser-driven image/video CUDA runs have passed. This completes the scoped v0.2 image-and-video milestone; it does not imply DINOv3 or any excluded platform capability.
+
+With `VIS_TEST_VIDEO`, both checkpoint variables, CUDA, and a 100-frame target configured, the dedicated real-video integration module passes both families (`2 passed`), loading each checkpoint once and applying the same frame-level adapter contract.
 
 ## Known limitations and deliberate deviations
 
 - API routes and UI widgets are grouped by cohesive modules rather than creating a one-file stub for every diagram entry; runtime separation is preserved.
 - The preview dock provides an original/prediction toggle rather than a simultaneous side-by-side layout.
 - Execution events include both a category in `type` and an explicit lifecycle name in `event`.
-- Pause/stop checkpoints occur between video frames or graph nodes; an individual third-party inference call cannot be pre-empted safely.
+- Pause/cancel checkpoints occur between video frames or graph nodes; an individual third-party inference call cannot be pre-empted safely.
 - Generic ONNX v0.1 assumes a single NCHW image input and exposes the first output tensor.
 - The installed RF-DETR runtime recognizes the available large checkpoint as a legacy architecture and automatically selects its deprecated compatibility configuration; this is functional but emits an upstream warning.
 - DINOv3 Transformers model metadata may require initial network access unless already cached; the supplied local state dict is still explicitly applied.
@@ -258,10 +287,8 @@ The normal suite passes in `/home/avinash/venv` (`14 passed`, with 2 runtime-gat
 
 ## Conclusion
 
-Vision Inference Studio v0.1 now completes its first production-oriented milestone: a user can configure and execute a real `Image → Universal Model → Detection Preview` graph without changing the graph structure for different detector families. RF-DETR and YOLO both run through the same registry, model manager, execution engine, standard `DetectionResult`, renderer, WebSocket lifecycle, and React Flow interface.
+Vision Inference Studio v0.2 completes the local real-time media milestone: the same model-independent graph now handles both `Image → Model → Detection Preview` and `Video → Model → Video Preview` for real YOLO and RF-DETR CUDA inference. Video decoding, scheduling, rendering, preview transport, lifecycle controls, metrics, and persistence stay outside the adapters, preserving the abstraction proven in v0.1.
 
-This milestone is backed by real CUDA inference rather than mock detections. In browser-driven acceptance, both saved workflows reached `COMPLETED`, produced rendered predictions, exposed original/prediction switching, and reported object counts, phase timings, device information, and GPU-memory measurements. Explicit model load, cache reuse, unload, validation, typed-port rejection, execution-state feedback, and terminal WebSocket delivery are covered by implementation and tests.
+The video claim is backed by actual 1920×1080 camera footage, real checkpoints, 100-frame browser-driven runs for each model, visible live predictions, frame-boundary pause/resume, clean cancellation, cached model reuse, percentile benchmark reports, and a separate 300-frame memory validation. Preview storage and subscriber backpressure are bounded rather than proportional to video duration.
 
-The result establishes the intended abstraction boundary: model-specific behavior remains inside adapters, while graph execution, rendering, persistence, APIs, and UI behavior stay model-family independent. The project is therefore ready for the next focused milestone—real video inference and performance validation—without introducing remote execution, training, annotation/export, or distributed-system scope prematurely.
-
-The current conclusion is intentionally limited to real RF-DETR and YOLO image detection. DINOv3, real video acceptance, and the explicitly excluded future capabilities remain unverified and must not be inferred from this milestone.
+The current conclusion remains deliberately narrow. It verifies local RF-DETR/YOLO image and file-video inference only. DINOv3, RTSP, Tailscale, remote Jetsons, GCP, SAM, annotation/export, training, deployment, multi-GPU scheduling, and distributed workers remain unimplemented or unverified.

@@ -23,6 +23,17 @@ class ModelOutput:
 
 
 @dataclass
+class VideoValue:
+    asset: AssetRecord
+    frame_stride: int = 1
+    warmup_frames: int = 2
+    benchmark_frames: int = 0
+
+
+@dataclass
 class VideoModelStream:
     asset: AssetRecord
     config: ModelConfig
+    frame_stride: int = 1
+    warmup_frames: int = 2
+    benchmark_frames: int = 0

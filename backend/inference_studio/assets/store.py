@@ -27,6 +27,7 @@ class AssetRecord(BaseModel):
     frame_count: int | None = None
     fps: float | None = None
     duration_seconds: float | None = None
+    codec: str | None = None
     path: str = Field(exclude=True)
 
 
@@ -82,8 +83,13 @@ class AssetStore:
         height = int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT))
         frames = int(capture.get(cv2.CAP_PROP_FRAME_COUNT))
         fps = float(capture.get(cv2.CAP_PROP_FPS)) or 0.0
+        fourcc = int(capture.get(cv2.CAP_PROP_FOURCC))
+        codec = "".join(chr((fourcc >> (8 * index)) & 0xFF) for index in range(4)).strip("\x00 ") or "unknown"
+        readable, _ = capture.read()
         capture.release()
-        return AssetRecord(asset_id=asset_id, kind=kind, filename=filename, content_type=mimetypes.guess_type(filename)[0] or "application/octet-stream", size_bytes=size, sha256=sha256, width=width, height=height, frame_count=frames, fps=fps, duration_seconds=(frames / fps if fps else None), path=str(path))
+        if width <= 0 or height <= 0 or frames <= 0 or fps <= 0 or not readable:
+            raise AssetError("Uploaded video has no readable frames or valid stream metadata")
+        return AssetRecord(asset_id=asset_id, kind=kind, filename=filename, content_type=mimetypes.guess_type(filename)[0] or "application/octet-stream", size_bytes=size, sha256=sha256, width=width, height=height, frame_count=frames, fps=fps, duration_seconds=frames / fps, codec=codec, path=str(path))
 
     def get(self, asset_id: str) -> AssetRecord:
         metadata = self._metadata_path(asset_id)

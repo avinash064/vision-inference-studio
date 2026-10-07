@@ -54,8 +54,10 @@ async def test_model_manager_caches_and_unloads(model_registry, stores, register
     manager = ModelManager(model_registry, weights, AdapterRegistry([fake]))
     config = ModelConfig(family="yolo", version="v11", size="n", weight_id=weight.weight_id)
     first = await manager.load(config)
-    second = await manager.load(config)
+    changed_threshold = config.model_copy(update={"confidence": .8})
+    second = await manager.load(changed_threshold)
     assert first is second and fake.loads == 1
+    assert second.config.confidence == .8
     await manager.unload(config)
     assert fake.unloads == 1 and manager.status()[0].state == "UNLOADED"
 

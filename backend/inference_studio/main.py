@@ -39,8 +39,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     nodes = NodeRegistry()
     manager = ModelManager(models, weights, AdapterRegistry())
     validator = WorkflowValidator(nodes, models, weights, assets)
-    engine = ExecutionEngine(validator, assets, manager, config.workspace_dir / "previews")
-    app = FastAPI(title="Vision Inference Studio", version="0.1.0")
+    engine = ExecutionEngine(validator, assets, manager, config.workspace_dir / "previews", config.workspace_dir / "benchmarks")
+    app = FastAPI(title="Vision Inference Studio", version="0.2.0")
     app.state.services = Services(config, nodes, models, weights, assets, manager, validator, engine, WorkflowStore(config.workflows_dir))
     app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:5173", "http://127.0.0.1:5173", "http://localhost:5174", "http://127.0.0.1:5174"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
     app.include_router(router)
@@ -48,7 +48,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.get("/health")
     def health():
-        return {"status": "ok", "version": "0.1.0"}
+        return {"status": "ok", "version": "0.2.0"}
 
     @app.websocket("/api/v1/executions/{run_id}")
     async def websocket_route(websocket: WebSocket, run_id: str):
