@@ -11,6 +11,9 @@ class InferenceMetrics(BaseModel):
     postprocess_ms: float = 0
     total_ms: float = 0
     gpu_memory_mb: float = 0
+    gpu_reserved_mb: float = 0
+    gpu_peak_memory_mb: float = 0
+    device_name: str | None = None
 
 
 class InferenceResult(BaseModel):
@@ -25,4 +28,3 @@ ResultType = Literal[
     "tensor",
     "heatmap",
 ]
-

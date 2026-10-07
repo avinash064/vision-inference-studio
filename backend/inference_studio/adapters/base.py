@@ -46,17 +46,28 @@ class ModelAdapter(ABC):
     def postprocess(self, model: LoadedModel, output: Any) -> InferenceResult: ...
 
     def predict(self, model: LoadedModel, input_data: np.ndarray) -> InferenceResult:
+        cuda_device = None
+        try:
+            import torch
+            if model.config.device.startswith("cuda") and torch.cuda.is_available():
+                cuda_device = torch.device(model.config.device)
+                torch.cuda.synchronize(cuda_device)
+                torch.cuda.reset_peak_memory_stats(cuda_device)
+        except (ImportError, RuntimeError):
+            cuda_device = None
         started = self.timer()
         phase = perf_counter()
         tensor = self.preprocess(model, input_data)
         preprocess_ms = (perf_counter() - phase) * 1000
         phase = perf_counter()
         raw = self.infer(model, tensor)
+        if cuda_device is not None:
+            torch.cuda.synchronize(cuda_device)
         inference_ms = (perf_counter() - phase) * 1000
         phase = perf_counter()
         result = self.postprocess(model, raw)
         postprocess_ms = (perf_counter() - phase) * 1000
-        result.metrics = self.metrics(started, inference_ms, preprocess_ms, postprocess_ms)
+        result.metrics = self.metrics(started, inference_ms, preprocess_ms, postprocess_ms, cuda_device)
         return result
 
     def unload(self, model: LoadedModel) -> None:
@@ -69,19 +80,31 @@ class ModelAdapter(ABC):
             pass
 
     def metadata(self, model: LoadedModel) -> dict[str, Any]:
-        return {"adapter": self.name, "family": model.config.family, "version": model.config.version, "size": model.config.size, "device": model.config.device, "precision": model.config.precision, "weight": model.weight_path.name}
+        metadata: dict[str, Any] = {"adapter": self.name, "family": model.config.family, "version": model.config.version, "size": model.config.size, "device": model.config.device, "precision": model.config.precision, "weight": model.weight_path.name}
+        try:
+            import torch
+            if model.config.device.startswith("cuda") and torch.cuda.is_available():
+                device = torch.device(model.config.device)
+                metadata.update(device_name=torch.cuda.get_device_name(device), gpu_memory_mb=torch.cuda.memory_allocated(device) / 1024**2, gpu_reserved_mb=torch.cuda.memory_reserved(device) / 1024**2, gpu_peak_memory_mb=torch.cuda.max_memory_allocated(device) / 1024**2)
+        except (ImportError, RuntimeError):
+            pass
+        return metadata
 
     @staticmethod
     def timer() -> float:
         return perf_counter()
 
     @staticmethod
-    def metrics(start: float, inference_ms: float, preprocess_ms: float = 0, postprocess_ms: float = 0) -> InferenceMetrics:
-        gpu_memory = 0.0
+    def metrics(start: float, inference_ms: float, preprocess_ms: float = 0, postprocess_ms: float = 0, cuda_device: Any = None) -> InferenceMetrics:
+        allocated = reserved = peak = 0.0
+        device_name = None
         try:
             import torch
-            if torch.cuda.is_available():
-                gpu_memory = torch.cuda.memory_allocated() / 1024**2
+            if cuda_device is not None and torch.cuda.is_available():
+                allocated = torch.cuda.memory_allocated(cuda_device) / 1024**2
+                reserved = torch.cuda.memory_reserved(cuda_device) / 1024**2
+                peak = torch.cuda.max_memory_allocated(cuda_device) / 1024**2
+                device_name = torch.cuda.get_device_name(cuda_device)
         except ImportError:
             pass
-        return InferenceMetrics(preprocess_ms=preprocess_ms, inference_ms=inference_ms, postprocess_ms=postprocess_ms, total_ms=(perf_counter() - start) * 1000, gpu_memory_mb=gpu_memory)
+        return InferenceMetrics(preprocess_ms=preprocess_ms, inference_ms=inference_ms, postprocess_ms=postprocess_ms, total_ms=(perf_counter() - start) * 1000, gpu_memory_mb=allocated, gpu_reserved_mb=reserved, gpu_peak_memory_mb=peak, device_name=device_name)

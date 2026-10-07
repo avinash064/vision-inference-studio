@@ -2,7 +2,7 @@
 
 A local, node-based computer-vision inference workbench built independently with React Flow and FastAPI. Compose a typed DAG, upload assets and model weights through opaque IDs, validate the workflow, and run image or sequential video inference while results stream back over WebSocket.
 
-> Status: production-oriented MVP implementation. Mocked end-to-end execution and the complete non-GPU suite pass. Real YOLO, RF-DETR, DINOv3, and video acceptance results are reported honestly in [Acceptance status](#acceptance-status); a model is not claimed as verified unless its runtime and compatible weights were actually available.
+> Status: the first real Image → Universal Model → Detection Preview milestone is complete for both RF-DETR and YOLO on the local CUDA GPU. The same saved three-node graph was exercised through the backend with real checkpoints; browser acceptance is documented in [Acceptance status](#acceptance-status). DINOv3 and real video remain outside this milestone and are not claimed as verified.
 
 ## Architecture
 
@@ -92,20 +92,15 @@ Frontend: React 18, TypeScript, Vite, `@xyflow/react`, Zustand, Radix Tooltip, a
 
 ## Local setup
 
-Backend:
+Backend (this workstation uses the shared environment requested for the project):
 
 ```bash
 cd vision-inference-studio
-python3 -m venv .venv
-. .venv/bin/activate
-pip install -r requirements-dev.txt
-
-# Required for real models; use the PyTorch wheel/index appropriate for your CUDA driver.
-pip install -r requirements-runtimes.txt
-
-uvicorn inference_studio.main:app \
-  --app-dir backend --host 0.0.0.0 --port 8000 --reload
+PYTHONPATH=backend /home/avinash/venv/bin/uvicorn \
+  inference_studio.main:app --host 0.0.0.0 --port 8000
 ```
+
+For a fresh machine, create a Python 3.10+ environment, install `requirements-dev.txt` and `requirements-runtimes.txt`, then substitute that environment's Python/Uvicorn paths. Use the PyTorch wheel appropriate for the installed CUDA driver.
 
 Frontend (Node 20+):
 
@@ -115,7 +110,16 @@ npm ci
 npm run dev -- --host 0.0.0.0
 ```
 
-Open `http://localhost:5173`. The default API address is `http://<browser-host>:8000`; override it with `VITE_API_URL` at build/dev time.
+On this workstation, where Node is provided by Docker, the exact production-build and preview commands are:
+
+```bash
+cd vision-inference-studio
+docker run --rm -v "$PWD/frontend:/app" -w /app node:22-alpine npm run build
+/home/avinash/venv/bin/python -m http.server 5174 \
+  --bind 127.0.0.1 --directory frontend/dist
+```
+
+Open `http://localhost:5173` for Vite development or `http://127.0.0.1:5174` for the production preview above. The default API address is `http://<browser-host>:8000`; override it with `VITE_API_URL` at build/dev time.
 
 Docker baseline (graph/API/UI; build with runtime packages separately for GPU inference):
 
@@ -132,8 +136,9 @@ The backend Dockerfile supports `--build-arg INSTALL_RUNTIMES=1`. NVIDIA contain
 3. Upload a compatible weight. The browser receives an internal ID, never a server path.
 4. Choose device, precision, and confidence.
 5. Add Detection, Feature, Tensor, or Video Preview as appropriate and connect typed handles.
-6. Select **Validate**, then **Run**. Active nodes highlight while results and metrics stream into the dock.
-7. Video decoding is sequential; Pause/Resume/Stop operate at frame checkpoints without buffering the whole file.
+6. Select **Validate**, then **Run**. Nodes visibly progress through waiting → loading/running → success/error, active edges animate, and results stream into the dock.
+7. Toggle **Original** / **Prediction** in the dock and inspect preprocessing, inference, postprocessing, total time, object count, GPU allocated/reserved/peak memory, and device name.
+8. Video decoding is sequential; Pause/Resume/Stop operate at frame checkpoints without buffering the whole file.
 
 Saved example shapes are under `workflows/examples/`; replace their placeholder asset and weight IDs with values returned by uploads.
 
@@ -168,6 +173,7 @@ DINOv3 returns a feature result and is never represented as an object detector.
 GET  /health
 GET  /api/v1/nodes
 GET  /api/v1/models
+GET  /api/v1/models/loaded
 GET  /api/v1/devices
 GET  /api/v1/weights
 POST /api/v1/weights
@@ -219,7 +225,7 @@ Treat model files as trusted artifacts: some third-party runtimes (notably Ultra
 ## Tests
 
 ```bash
-PYTHONPATH=backend .venv/bin/pytest -q
+PYTHONPATH=backend /home/avinash/venv/bin/pytest -q backend/tests
 cd frontend && npm run build
 ```
 
@@ -230,21 +236,22 @@ The suite covers the node/model registries, typed valid and invalid connections,
 | Check | Result in this workspace |
 |---|---|
 | Node library → typed React Flow → inspector → validate/run | Implemented; production TypeScript build passes |
-| Backend graph execution and rendered preview | Passed end-to-end with a mock adapter and real image decoding/rendering |
-| YOLO real inference | **Passed on CPU** through upload registration → model manager → Ultralytics adapter → standardized detections → renderer. The local `best.pt` produced 2 detections (`Black_PP` 0.81, `Color_PP` 0.52) in 1,859 ms total on the 1920×1200 test image. The rendered preview was visually checked. |
-| RF-DETR real inference | Not run; no compatible RF-DETR checkpoint was available |
+| Browser-driven React Flow acceptance | **Passed** in headless Chrome by selecting each saved workflow and clicking the UI Run button. Both runs reached `COMPLETED`, delivered 14 lifecycle events, loaded their preview image, and displayed device/timing/VRAM metrics. |
+| Backend graph execution and rendered preview | Passed with real image decode, real adapters, standardized results, separate renderer, and original/prediction URLs |
+| YOLO real inference | **Passed on CUDA** using `best.pt` and the saved `wf_yoloacceptance` graph. It produced 4 detections on `cam04.jpg`; cold total was 683.1 ms with 87.8 MB allocated, 350 MB reserved, and 262.3 MB peak GPU memory. The prediction preview was visually checked. |
+| RF-DETR real inference | **Passed on CUDA** using the official legacy `rf-detr-large.pth` and saved `wf_rfdetracceptance` graph. It produced 1 `truck` detection at 0.489 confidence; cold total was 749.8 ms with 534.6 MB allocated, 820 MB reserved, and 682.9 MB peak GPU memory. The prediction preview was visually checked. |
 | DINOv3 real feature output | Not run; no compatible DINOv3 checkpoint was available |
 | Real video inference | Pipeline implemented with sequential OpenCV decode and WebSocket frames; not run against a real installed model runtime |
 
-The optional real-checkpoint test also passed (`1 passed in 3.25s`) with `VIS_YOLO_WEIGHT`, `VIS_TEST_IMAGE`, and CPU configured. The full acceptance test is still **not declared complete** because RF-DETR, DINOv3, real video, and an interactive browser-driven React Flow run could not all be exercised with the artifacts available in this workspace.
+The normal suite passes in `/home/avinash/venv` (`14 passed`, with 2 runtime-gated tests skipped when their environment variables are absent). The dedicated real RF-DETR adapter integration test also passes on CUDA. This completes the scoped image-detection milestone; it does not imply DINOv3 or video acceptance.
 
 ## Known limitations and deliberate deviations
 
 - API routes and UI widgets are grouped by cohesive modules rather than creating a one-file stub for every diagram entry; runtime separation is preserved.
-- The preview dock shows the rendered image and all timing/object/VRAM metrics, but does not yet provide a side-by-side original/result toggle.
-- Execution events use a consistent `{type, state, ...}` envelope; they carry the same lifecycle data as the example `{event: ...}` envelope.
+- The preview dock provides an original/prediction toggle rather than a simultaneous side-by-side layout.
+- Execution events include both a category in `type` and an explicit lifecycle name in `event`.
 - Pause/stop checkpoints occur between video frames or graph nodes; an individual third-party inference call cannot be pre-empted safely.
 - Generic ONNX v0.1 assumes a single NCHW image input and exposes the first output tensor.
-- RF-DETR constructor names differ across package releases; the adapter fails with a clear compatibility error if the installed package does not expose a supported local-weight argument.
+- The installed RF-DETR runtime recognizes the available large checkpoint as a legacy architecture and automatically selects its deprecated compatibility configuration; this is functional but emits an upstream warning.
 - DINOv3 Transformers model metadata may require initial network access unless already cached; the supplied local state dict is still explicitly applied.
 - Remote execution, Tailscale, Jetsons, GCP, RTSP, SAM, annotation/export, training, arbitrary code/shell nodes, scheduling, and distributed workers are intentionally absent.

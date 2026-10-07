@@ -4,7 +4,7 @@ import asyncio
 from enum import Enum
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from inference_studio.adapters import AdapterRegistry, LoadedModel, ModelAdapter, ModelConfig
 
@@ -27,6 +27,7 @@ class ModelStatus(BaseModel):
     device: str
     weight_id: str
     error: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class ManagedModel:
@@ -85,5 +86,8 @@ class ModelManager:
             entry.loaded, entry.state, entry.error = None, ModelState.UNLOADED, None
 
     def status(self) -> list[ModelStatus]:
-        return [ModelStatus(model_id=model_id, state=entry.state, family=entry.config.family, adapter=entry.adapter.name, device=entry.config.device, weight_id=entry.config.weight_id, error=entry.error) for model_id, entry in self._models.items()]
+        return [ModelStatus(model_id=model_id, state=entry.state, family=entry.config.family, adapter=entry.adapter.name, device=entry.config.device, weight_id=entry.config.weight_id, error=entry.error, metadata=entry.adapter.metadata(entry.loaded) if entry.loaded is not None else {}) for model_id, entry in self._models.items()]
 
+    def state_for(self, config: ModelConfig) -> ModelState:
+        entry = self._models.get(self.model_id(config))
+        return entry.state if entry is not None else ModelState.UNLOADED

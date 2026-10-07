@@ -24,6 +24,11 @@ def list_models(request: Request):
     return {**value.models.public_data(), "loaded": [item.model_dump(mode="json") for item in value.manager.status()]}
 
 
+@router.get("/models/loaded")
+def loaded_models(request: Request):
+    return [item.model_dump(mode="json") for item in services(request).manager.status()]
+
+
 @router.get("/devices")
 def list_devices():
     devices = [{"id": "cpu", "label": "CPU", "kind": "cpu"}]
@@ -161,4 +166,3 @@ async def execution_socket(websocket: WebSocket, run_id: str) -> None:
             await websocket.close()
         except RuntimeError:
             pass
-

@@ -1,4 +1,4 @@
-import type { Device, ExecutionEvent, ModelCatalog, NodeDefinition, ValidationIssue, Weight } from '../types'
+import type { Asset, Device, ExecutionEvent, ModelCatalog, NodeDefinition, ValidationIssue, Weight } from '../types'
 
 export const API_BASE = import.meta.env.VITE_API_URL || `http://${location.hostname}:8000`
 
@@ -19,8 +19,9 @@ export const api = {
   workflows: () => request<{ workflow_id: string; name: string; version: string }[]>('/api/v1/workflows'),
   workflow: (id: string) => request<Record<string, unknown>>(`/api/v1/workflows/${id}`),
   model: (action: 'load' | 'unload', config: unknown) => request<{ model_id: string; state: string }>(`/api/v1/models/${action}`, { method: 'POST', body: JSON.stringify(config) }),
+  loadedModels: () => request<Array<{ model_id: string; state: string; family: string; device: string; weight_id: string }>>('/api/v1/models/loaded'),
   control: (runId: string, action: 'pause' | 'resume' | 'stop') => request<{ state: string }>(`/api/v1/executions/${runId}/${action}`, { method: 'POST' }),
-  upload: async (kind: 'image' | 'video', file: File) => { const body = new FormData(); body.append('file', file); return request<{ asset_id: string }>(`/api/v1/assets/${kind}`, { method: 'POST', body }) },
+  upload: async (kind: 'image' | 'video', file: File) => { const body = new FormData(); body.append('file', file); return request<Asset>(`/api/v1/assets/${kind}`, { method: 'POST', body }) },
   uploadWeight: async (family: string, file: File) => { const body = new FormData(); body.append('family', family); body.append('file', file); return request<Weight>('/api/v1/weights', { method: 'POST', body }) },
   subscribe: (runId: string, onEvent: (event: ExecutionEvent) => void) => {
     const base = API_BASE.replace(/^http/, 'ws'); const socket = new WebSocket(`${base}/api/v1/executions/${runId}`)

@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 
 from inference_studio.adapters import AdapterRegistry, LoadedModel, ModelAdapter, ModelConfig
-from inference_studio.graph.executor import ExecutionEngine, RunState
+from inference_studio.graph.executor import Execution, ExecutionEngine, RunState
 from inference_studio.graph.validator import WorkflowValidator
 from inference_studio.models import ModelManager
 from inference_studio.nodes import NodeRegistry
@@ -73,4 +73,37 @@ async def test_execution_serializes_results_and_selects_detection_renderer(tmp_p
     result_events = [event for event in execution.events if event["type"] == "inference_result"]
     assert result_events[0]["result"]["detections"][0]["label"] == "object"
     preview = next(event for event in execution.events if event["type"] == "preview")
-    assert (tmp_path / "previews" / preview["url"].split("/")[-1]).is_file()
+    assert preview["event"] == "preview_ready"
+    assert preview["url"] == preview["prediction_url"]
+    for url in (preview["original_url"], preview["prediction_url"]):
+        assert (tmp_path / "previews" / url.split("/")[-1]).is_file()
+    lifecycle = [event["event"] for event in execution.events]
+    assert lifecycle[0] == "workflow_started"
+    assert lifecycle.count("node_waiting") == 3
+    assert "inference_completed" in lifecycle
+    assert lifecycle[-1] == "workflow_completed"
+
+
+async def test_live_subscriber_receives_terminal_event(tmp_path, model_registry, stores, registered_files):
+    weights, assets = stores
+    weight, asset = registered_files
+    manager = ModelManager(model_registry, weights, AdapterRegistry([FakeAdapter()]))
+    validator = WorkflowValidator(NodeRegistry(), model_registry, weights, assets)
+    engine = ExecutionEngine(validator, assets, manager, tmp_path / "previews")
+    execution = Execution(run_id="run_live", workflow=valid_workflow(weight.weight_id, asset.asset_id), state=RunState.RUNNING)
+    engine.executions[execution.run_id] = execution
+    events = engine.subscribe(execution.run_id)
+
+    waiting = asyncio.create_task(anext(events))
+    await asyncio.sleep(0)
+    await engine.publish(execution, {"type": "node_state", "event": "node_completed", "state": "success"})
+    assert (await waiting)["event"] == "node_completed"
+
+    execution.state = RunState.COMPLETED
+    await engine.publish(execution, {"type": "run_state", "event": "workflow_completed", "state": execution.state})
+    assert (await anext(events))["event"] == "workflow_completed"
+    try:
+        await anext(events)
+        assert False, "terminal event must close the subscription"
+    except StopAsyncIteration:
+        pass

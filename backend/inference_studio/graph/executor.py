@@ -5,6 +5,7 @@ import uuid
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
+from time import perf_counter
 from typing import Any
 
 import cv2
@@ -69,11 +70,19 @@ class ExecutionEngine:
         execution = self.get(run_id)
         queue: asyncio.Queue = asyncio.Queue()
         execution.subscribers.append(queue)
+        terminal = {RunState.COMPLETED, RunState.ERROR, RunState.STOPPED}
         try:
-            for event in execution.events:
+            # Snapshot after registering the queue: later events cannot fall into
+            # the gap between replay and live delivery.
+            for event in list(execution.events):
                 yield event
-            while execution.state not in {RunState.COMPLETED, RunState.ERROR, RunState.STOPPED}:
-                yield await queue.get()
+                if event.get("type") == "run_state" and event.get("state") in terminal:
+                    return
+            while True:
+                event = await queue.get()
+                yield event
+                if event.get("type") == "run_state" and event.get("state") in terminal:
+                    return
         finally:
             execution.subscribers.remove(queue)
 
@@ -87,13 +96,13 @@ class ExecutionEngine:
         execution = self.get(run_id)
         execution.state = RunState.PAUSED
         execution.pause_gate.clear()
-        await self.publish(execution, {"type": "run_state", "state": execution.state})
+        await self.publish(execution, {"type": "run_state", "event": "workflow_paused", "state": execution.state})
 
     async def resume(self, run_id: str) -> None:
         execution = self.get(run_id)
         execution.state = RunState.RUNNING
         execution.pause_gate.set()
-        await self.publish(execution, {"type": "run_state", "state": execution.state})
+        await self.publish(execution, {"type": "run_state", "event": "workflow_resumed", "state": execution.state})
 
     async def stop(self, run_id: str) -> None:
         execution = self.get(run_id)
@@ -107,25 +116,33 @@ class ExecutionEngine:
 
     async def _execute(self, execution: Execution, order: list[str]) -> None:
         execution.state = RunState.RUNNING
-        await self.publish(execution, {"type": "run_state", "state": execution.state})
+        await self.publish(execution, {"type": "run_state", "event": "workflow_started", "state": execution.state})
         values: dict[str, Any] = {}
         node_map = {node.id: node for node in execution.workflow.nodes}
+        for node_id in order:
+            await self.publish(execution, {"type": "node_state", "event": "node_waiting", "node_id": node_id, "state": "waiting"})
+        current_node_id: str | None = None
         try:
             for node_id in order:
                 await self._checkpoint(execution)
+                current_node_id = node_id
                 node = node_map[node_id]
-                await self.publish(execution, {"type": "node_state", "node_id": node_id, "state": "RUNNING"})
+                node_started = perf_counter()
+                state = "loading" if node.type == "model" else "running"
+                await self.publish(execution, {"type": "node_state", "event": "node_started", "node_id": node_id, "state": state})
                 incoming = {edge.target_handle: values[edge.source] for edge in execution.workflow.edges if edge.target == node_id}
                 values[node_id] = await self._run_node(execution, node, incoming)
-                await self.publish(execution, {"type": "node_state", "node_id": node_id, "state": "COMPLETED"})
+                await self.publish(execution, {"type": "node_state", "event": "node_completed", "node_id": node_id, "state": "success", "duration_ms": (perf_counter() - node_started) * 1000})
             execution.state = RunState.COMPLETED
-            await self.publish(execution, {"type": "run_state", "state": execution.state})
+            await self.publish(execution, {"type": "run_state", "event": "workflow_completed", "state": execution.state})
         except InterruptedError:
             execution.state = RunState.STOPPED
-            await self.publish(execution, {"type": "run_state", "state": execution.state})
+            await self.publish(execution, {"type": "run_state", "event": "workflow_cancelled", "state": execution.state})
         except Exception as exc:
             execution.state = RunState.ERROR
-            await self.publish(execution, {"type": "run_state", "state": execution.state, "error": str(exc)})
+            if current_node_id is not None:
+                await self.publish(execution, {"type": "node_state", "event": "node_failed", "node_id": current_node_id, "state": "error", "error": str(exc)})
+            await self.publish(execution, {"type": "run_state", "event": "workflow_failed", "state": execution.state, "error": str(exc)})
 
     async def _run_node(self, execution: Execution, node, inputs: dict[str, Any]):
         if node.type in {"image_source", "video_source"}:
@@ -158,8 +175,10 @@ class ExecutionEngine:
             value = inputs["input"]
             if hasattr(value, "kind") and value.kind == "video":
                 return VideoModelStream(asset=value, config=config)
+            await self.manager.load(config)
+            await self.publish(execution, {"type": "node_state", "event": "node_started", "node_id": node.id, "state": "running"})
             result = await self.manager.predict(config, value.image)
-            await self.publish(execution, {"type": "inference_result", "node_id": node.id, "model": config.model_dump(mode="json"), "result": result.model_dump(mode="json")})
+            await self.publish(execution, {"type": "inference_result", "event": "inference_completed", "node_id": node.id, "model": config.model_dump(mode="json"), "result": result.model_dump(mode="json")})
             return ModelOutput(image=value.image, result=result, config=config)
         if node.type == "video_preview":
             return await self._run_video(execution, node.id, inputs["result"])
@@ -168,9 +187,10 @@ class ExecutionEngine:
         if output.result.result_type not in ((expected,) if isinstance(expected, str) else expected):
             raise ValueError(f"{node.type} cannot render {output.result.result_type}")
         canvas = self.renderers.render(output.image, output.result)
-        url = await self._save_preview(execution.run_id, node.id, canvas)
-        await self.publish(execution, {"type": "preview", "node_id": node.id, "url": url, "model": output.config.model_dump(mode="json"), "result": output.result.model_dump(mode="json")})
-        return {"url": url}
+        original_url = await self._save_preview(execution.run_id, node.id, output.image, label="original")
+        prediction_url = await self._save_preview(execution.run_id, node.id, canvas, label="prediction")
+        await self.publish(execution, {"type": "preview", "event": "preview_ready", "node_id": node.id, "url": prediction_url, "original_url": original_url, "prediction_url": prediction_url, "model": output.config.model_dump(mode="json"), "result": output.result.model_dump(mode="json")})
+        return {"original_url": original_url, "prediction_url": prediction_url}
 
     async def _run_video(self, execution: Execution, node_id: str, stream: VideoModelStream):
         capture = cv2.VideoCapture(stream.asset.path)
@@ -186,14 +206,14 @@ class ExecutionEngine:
                 result = await self.manager.predict(stream.config, frame)
                 canvas = self.renderers.render(frame, result)
                 url = await self._save_preview(execution.run_id, node_id, canvas, frame_number)
-                await self.publish(execution, {"type": "video_frame", "node_id": node_id, "frame": frame_number, "frame_count": stream.asset.frame_count, "fps": stream.asset.fps, "url": url, "model": stream.config.model_dump(mode="json"), "result": result.model_dump(mode="json"), "metrics": result.metrics.model_dump(), "object_count": len(getattr(result, "detections", []))})
+                await self.publish(execution, {"type": "video_frame", "event": "video_frame_completed", "node_id": node_id, "frame": frame_number, "frame_count": stream.asset.frame_count, "fps": stream.asset.fps, "url": url, "model": stream.config.model_dump(mode="json"), "result": result.model_dump(mode="json"), "metrics": result.metrics.model_dump(), "object_count": len(getattr(result, "detections", []))})
                 frame_number += 1
         finally:
             capture.release()
         return {"frames": frame_number}
 
-    async def _save_preview(self, run_id: str, node_id: str, image, frame: int | None = None) -> str:
-        suffix = f"_{frame:08d}" if frame is not None else ""
+    async def _save_preview(self, run_id: str, node_id: str, image, frame: int | None = None, label: str | None = None) -> str:
+        suffix = f"_{frame:08d}" if frame is not None else f"_{label}" if label else ""
         filename = f"{run_id}_{node_id}{suffix}.jpg"
         target = self.preview_dir / filename
         success = await asyncio.to_thread(cv2.imwrite, str(target), image)
