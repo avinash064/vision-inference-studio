@@ -1,0 +1,19 @@
+import { Handle, Position, type NodeProps } from '@xyflow/react'
+import { Box, BrainCircuit, Image, MonitorPlay, ScanLine, SlidersHorizontal, Video } from 'lucide-react'
+import { useStudio } from '../../store/studio'
+import type { StudioNode as StudioNodeType } from '../../types'
+
+const icons = { image_source: Image, video_source: Video, model: BrainCircuit, detection_preview: MonitorPlay, feature_preview: ScanLine, tensor_preview: Box, video_preview: MonitorPlay }
+
+export function StudioNode({ id, data, selected }: NodeProps<StudioNodeType>) {
+  const definition = useStudio((state) => state.definitions.find((item) => item.type === data.nodeType))
+  const weight = useStudio((state) => state.weights.find((item) => item.weight_id === data.config.weight_id))
+  const Icon = icons[data.nodeType as keyof typeof icons] || SlidersHorizontal
+  return <div className={`studio-node ${selected ? 'selected' : ''} ${data.state === 'RUNNING' ? 'running' : ''}`}>
+    <div className="node-head"><span className="node-icon"><Icon size={16} /></span><div><strong>{data.label}</strong><small>{definition?.category}</small></div><span className={`state-dot state-${String(data.state || '').toLowerCase()}`} /></div>
+    {data.nodeType === 'model' ? <div className="model-summary"><strong>{String(data.config.family || 'Choose family').toUpperCase()} · {String(data.config.size || '—')}</strong><span>{weight?.filename || 'No weights selected'}</span><em>{String(data.config.device || 'cpu')} · {String(data.config.precision || 'fp32').toUpperCase()}</em></div> : <p>{definition?.description}</p>}
+    <div className="ports inputs">{definition?.inputs.map((port) => <div className="port-row" key={port.id}><Handle id={port.id} type="target" position={Position.Left} /><span>{port.label}</span><em>{port.data_types.join(' · ')}</em></div>)}</div>
+    <div className="ports outputs">{definition?.outputs.map((port) => <div className="port-row output" key={port.id}><em>{port.data_types.join(' · ')}</em><span>{port.label}</span><Handle id={port.id} type="source" position={Position.Right} /></div>)}</div>
+    <span className="node-id">{id}</span>
+  </div>
+}

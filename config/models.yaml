@@ -1,0 +1,41 @@
+families:
+  yolo:
+    display_name: YOLO
+    adapter: yolo
+    result_type: detections
+    extensions: [.pt]
+    versions:
+      v8:
+        sizes: [n, s, m, l, x, custom]
+      v11:
+        sizes: [n, s, m, l, x, custom]
+      v12:
+        sizes: [n, s, m, l, x, custom]
+
+  rfdetr:
+    display_name: RF-DETR
+    adapter: rfdetr
+    result_type: detections
+    extensions: [.pth, .pt]
+    versions:
+      v1:
+        sizes: [nano, small, medium, base, large]
+
+  dinov3:
+    display_name: DINOv3
+    adapter: dinov3
+    result_type: feature_map
+    extensions: [.pth, .pt]
+    versions:
+      official:
+        sizes: [vit-s, vit-b, vit-l]
+
+  onnx:
+    display_name: Generic ONNX
+    adapter: onnx
+    result_type: tensor
+    extensions: [.onnx]
+    versions:
+      generic:
+        sizes: [custom]
+
