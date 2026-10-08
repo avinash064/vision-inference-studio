@@ -4,6 +4,16 @@ A local, node-based computer-vision inference workbench built independently with
 
 > Status: v0.4 adds Grounding DINO (official IDEA-Research implementation), SAM, SAM 2/2.1, SAM 3, dynamic import of the local chaiNNer registry, and live CPU/GPU utilization rings. On this workstation, 179 chaiNNer registrations are represented in the library: 162 runtime-discovered nodes and 17 unavailable nodes with explicit reasons. The official SAM ViT-B checkpoint also passes a CUDA/FP16 load test, and Grounding DINO, SAM 2.1 and SAM 3 pass real CUDA inference through the API (see Acceptance status). Existing real image/video CUDA acceptance for RF-DETR and YOLO remains unchanged.
 
+## Screenshots
+
+![Vision Inference Studio running Grounding DINO text-prompt detection on an image](docs/images/studio-image-grounding-dino.png)
+
+*Image workflow: Image → Model (official Grounding DINO, text prompt `person, tie`) → Detection Preview. The Inspector shows the model and prompt settings; Live Output shows the labelled boxes with timing and GPU memory (RTX 4050, FP16).*
+
+![Vision Inference Studio streaming SAM 2.1 segmentation over a video](docs/images/studio-video-sam2.png)
+
+*Video workflow: Video → Model (SAM 2.1 base-plus, box prompt) → Video Preview, captured mid-run. Each 1080p frame is segmented at about 13 FPS; Pause / Resume / Stop act at frame boundaries.*
+
 ## Architecture
 
 ```text
