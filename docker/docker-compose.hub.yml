@@ -1,0 +1,34 @@
+# Run the published images (GPU host needs the NVIDIA Container Toolkit):
+#   docker login && docker-compose -f docker/docker-compose.hub.yml up -d
+# Weights ship inside the backend image; the named volume is seeded from it on first start and keeps uploads.
+services:
+  backend:
+    image: avinash061/vision_studio:backend-0.4.0-cu121
+    ports: ["8000:8000"]
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+    volumes:
+      - vis-weights:/app/weights
+      - vis-workflows:/app/workflows
+      - vis-workspace:/app/workspace
+      - vis-benchmarks:/app/benchmarks
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+
+  frontend:
+    image: avinash061/vision_studio:frontend-0.4.0
+    ports: ["${VIS_FRONTEND_PORT:-5173}:80"]
+    depends_on: [backend]
+    restart: unless-stopped
+
+volumes:
+  vis-weights:
+  vis-workflows:
+  vis-workspace:
+  vis-benchmarks:

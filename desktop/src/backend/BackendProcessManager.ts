@@ -35,6 +35,7 @@ export class BackendProcessManager {
         ...process.env,
         PYTHONPATH: pythonPath,
         VIS_DESKTOP_MODE: '1',
+        VIS_PARENT_PID: String(process.pid),
         VIS_API_TOKEN: this.token,
         VIS_PROJECT_ROOT: this.paths.appRoot,
         VIS_DATA_DIR: this.paths.dataRoot,
@@ -46,6 +47,11 @@ export class BackendProcessManager {
         VIS_BENCHMARKS_DIR: this.paths.benchmarks,
         VIS_RUNTIME_DIR: this.paths.runtimeRoot,
         VIS_LOG_DIR: this.paths.logs,
+        VIS_CHAINNER_SRC_DIR: path.join(this.paths.appRoot, 'chainner', 'src'),
+        // Private Hugging Face cache (SAM processor, Grounding DINO's BERT); an optional HF_TOKEN goes in
+        // ~/.config/vision-inference-studio/.env.
+        HF_HOME: process.env.HF_HOME || path.join(this.paths.dataRoot, 'huggingface'),
+        VIS_ENV_FILE: path.join(this.paths.configRoot, '.env'),
       },
       stdio: ['ignore', 'pipe', 'pipe'],
     })

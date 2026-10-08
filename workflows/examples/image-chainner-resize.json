@@ -1,0 +1,35 @@
+{
+  "version": "0.2",
+  "name": "chaiNNer resize preview",
+  "nodes": [
+    {
+      "id": "image",
+      "type": "image_source",
+      "position": {"x": 80, "y": 160},
+      "config": {"asset_id": "REPLACE_ASSET_ID"}
+    },
+    {
+      "id": "chainner_resize",
+      "type": "chainner:image:resize",
+      "position": {"x": 390, "y": 160},
+      "config": {
+        "input_1": 1,
+        "input_2": 100,
+        "input_3": 640,
+        "input_4": 640,
+        "input_5": -1,
+        "input_6": false
+      }
+    },
+    {
+      "id": "preview",
+      "type": "image_preview",
+      "position": {"x": 720, "y": 160},
+      "config": {}
+    }
+  ],
+  "edges": [
+    {"id": "image_resize", "source": "image", "source_handle": "image", "target": "chainner_resize", "target_handle": "input_0"},
+    {"id": "resize_preview", "source": "chainner_resize", "source_handle": "output_0", "target": "preview", "target_handle": "image"}
+  ]
+}

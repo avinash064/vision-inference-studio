@@ -21,6 +21,14 @@ class ModelConfig(BaseModel):
     device: str = "cpu"
     precision: Literal["fp32", "fp16"] = "fp32"
     confidence: float = Field(default=0.25, ge=0, le=1)
+    text_prompt: str = ""
+    text_threshold: float = Field(default=0.25, ge=0, le=1)
+    prompt_mode: Literal["", "text", "point", "box"] = ""
+    point_prompt: str = ""
+    point_foreground: bool = True
+    box_prompt: str = ""
+    mask_threshold: float = Field(default=0.0, ge=-10, le=10)
+    multimask: bool = False
 
 
 @dataclass

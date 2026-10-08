@@ -2,7 +2,19 @@ import { Upload } from 'lucide-react'
 import { useRef, useState } from 'react'
 import { api } from '../../api/client'
 import { useStudio } from '../../store/studio'
-import type { ConfigField } from '../../types'
+import type { ConfigField, FieldOption } from '../../types'
+
+const normalizedOptions = (values: ConfigField['options']): FieldOption[] => values.map((value) => typeof value === 'object' && value !== null && 'value' in value ? value as FieldOption : { label: String(value), value })
+
+function conditionVisible(condition: unknown, config: Record<string, unknown>): boolean {
+  if (!condition || typeof condition !== 'object') return true
+  const value = condition as Record<string, unknown>; const kind = String(value.kind || '')
+  if (kind === 'enum' || kind === 'bool') { const input = String(value.enum ?? value.input); const selected = config[`input_${input}`]; return (value.values as unknown[] || [value.value]).some((candidate) => String(candidate) === String(selected)) }
+  if (kind === 'and') return (value.items as unknown[] || []).every((item) => conditionVisible(item, config))
+  if (kind === 'or') return (value.items as unknown[] || []).some((item) => conditionVisible(item, config))
+  if (kind === 'not') return !conditionVisible(value.condition, config)
+  return true
+}
 
 export function PropertiesPanel() {
   const { selectedId, nodes, definitions, models, devices, weights, updateConfig, addWeight, setNodeState } = useStudio()
@@ -10,19 +22,36 @@ export function PropertiesPanel() {
   const [busy, setBusy] = useState(false); const fileRef = useRef<HTMLInputElement>(null)
   if (!node || !definition) return <aside className="properties panel"><div className="panel-title"><div><span>INSPECTOR</span><strong>Nothing selected</strong></div></div><div className="inspector-empty">Select a node to edit its configuration.</div></aside>
   const config = node.data.config
-  const options = (field: ConfigField): string[] => {
-    if (field.id === 'family') return Object.keys(models?.families || {})
+  const options = (field: ConfigField): FieldOption[] => {
+    if (field.id === 'family') return Object.keys(models?.families || {}).map((value) => ({ label: value, value }))
     const family = String(config.family || ''), version = String(config.version || '')
-    if (field.id === 'version') return Object.keys(models?.families[family]?.versions || {})
-    if (field.id === 'size') return models?.families[family]?.versions[version]?.sizes || []
-    if (field.id === 'device') return devices.map((item) => item.id)
-    if (field.id === 'weight_id') return weights.filter((item) => item.family === family).map((item) => item.weight_id)
-    return field.options
+    if (field.id === 'version') return Object.keys(models?.families[family]?.versions || {}).map((value) => ({ label: value, value }))
+    if (field.id === 'size') return (models?.families[family]?.versions[version]?.sizes || []).map((value) => ({ label: value, value }))
+    if (field.id === 'prompt_mode') return (models?.families[family]?.prompt_modes || []).map((value) => ({ label: value, value }))
+    if (field.id === 'device') return devices.map((item) => ({ label: item.label, value: item.id }))
+    if (field.id === 'weight_id') return weights.filter((item) => item.family === family).map((item) => ({ label: item.filename, value: item.weight_id }))
+    return normalizedOptions(field.options)
   }
-  const update = (key: string, value: unknown) => { updateConfig(node.id, key, value); if (key === 'family') { updateConfig(node.id, 'version', ''); updateConfig(node.id, 'size', ''); updateConfig(node.id, 'weight_id', '') } if (key === 'version') updateConfig(node.id, 'size', '') }
+  const update = (key: string, value: unknown) => { updateConfig(node.id, key, value); if (key === 'family') { const modes = models?.families[String(value)]?.prompt_modes || []; updateConfig(node.id, 'version', ''); updateConfig(node.id, 'size', ''); updateConfig(node.id, 'weight_id', ''); updateConfig(node.id, 'prompt_mode', modes[0] || ''); updateConfig(node.id, 'text_prompt', ''); updateConfig(node.id, 'point_prompt', ''); updateConfig(node.id, 'box_prompt', '') } if (key === 'version') updateConfig(node.id, 'size', '') }
+  const visible = (field: ConfigField) => {
+    if (!conditionVisible(field.condition, config)) return false
+    const modes = models?.families[String(config.family || '')]?.prompt_modes || []
+    const controls: string[] = models?.families[String(config.family || '')]?.controls || []
+    const mode = String(config.prompt_mode || modes[0] || '')
+    if (field.id === 'prompt_mode') return modes.length > 0
+    if (field.id === 'text_prompt') return mode === 'text'
+    if (field.id === 'text_threshold') return mode === 'text' && controls.includes('text_threshold')
+    if (['point_prompt', 'point_foreground'].includes(field.id)) return mode === 'point'
+    if (field.id === 'box_prompt') return mode === 'box'
+    if (['mask_threshold', 'multimask'].includes(field.id)) return controls.includes(field.id)
+    return true
+  }
   const uploadAsset = async (file: File) => { setBusy(true); try { if (node.data.nodeType === 'model') { const family = String(config.family || ''); if (!family) throw new Error('Choose a model family first'); const weight = await api.uploadWeight(family, file); addWeight(weight); update('weight_id', weight.weight_id) } else { const kind = node.data.nodeType === 'video_source' ? 'video' : 'image'; update('upload_state', 'uploading'); const asset = await api.upload(kind, file); update('asset_id', asset.asset_id); update('asset_filename', asset.filename); update('asset_width', asset.width); update('asset_height', asset.height); update('asset_size_bytes', asset.size_bytes); update('asset_codec', asset.codec); update('asset_duration_seconds', asset.duration_seconds); update('asset_frame_count', asset.frame_count); update('asset_fps', asset.fps); update('upload_state', 'ready') } } catch (error) { update('upload_state', 'error'); alert(error instanceof Error ? error.message : String(error)) } finally { setBusy(false) } }
   const modelAction = async (action: 'load' | 'unload') => { setBusy(true); setNodeState(node.id, action === 'load' ? 'LOADING' : 'UNLOADING'); try { const result = await api.model(action, config); setNodeState(node.id, result.state) } catch (error) { setNodeState(node.id, 'ERROR'); alert(error instanceof Error ? error.message : String(error)) } finally { setBusy(false) } }
-  return <aside className="properties panel"><div className="panel-title"><div><span>INSPECTOR</span><strong>{definition.label}</strong></div><code>{node.id}</code></div><p className="description">{definition.description}</p><div className="form-fields">{definition.config.map((field) => <label key={field.id}><span>{field.label}{field.required && <b>*</b>}</span>{field.kind === 'select' || field.kind === 'asset' || field.kind === 'weight' ? <select value={String(config[field.id] ?? '')} onChange={(event) => update(field.id, event.target.value)}><option value="">Select…</option>{options(field).map((option) => <option key={option} value={option}>{field.id === 'weight_id' ? weights.find((weight) => weight.weight_id === option)?.filename || option : option}</option>)}</select> : field.kind === 'boolean' ? <input type="checkbox" checked={Boolean(config[field.id])} onChange={(event) => update(field.id, event.target.checked)} /> : <input type={field.kind === 'number' ? 'number' : 'text'} min={field.minimum} max={field.maximum} step={field.id === 'confidence' ? .05 : 1} value={String(config[field.id] ?? '')} onChange={(event) => update(field.id, field.kind === 'number' ? Number(event.target.value) : event.target.value)} />}</label>)}</div>
+  return <aside className="properties panel"><div className="panel-title"><div><span>INSPECTOR</span><strong>{definition.label}</strong></div><code>{node.id}</code></div><p className="description">{definition.description}</p>{definition.provider === 'chainner' && <div className="chainner-meta"><span>{definition.package}</span><span>{definition.category} / {definition.group}</span><code>{definition.schema_id}</code></div>}<div className="form-fields">{definition.config.filter(visible).map((field) => {
+      const choices = options(field)
+      return <label key={field.id}><span>{field.label}{field.required && <b>*</b>}</span>{field.kind === 'select' || field.kind === 'asset' || field.kind === 'weight' ? <select value={String(config[field.id] ?? '')} onChange={(event) => { const selected = choices.find((option) => String(option.value) === event.target.value); update(field.id, selected?.value ?? event.target.value) }}><option value="">Select…</option>{choices.map((option) => <option key={String(option.value)} value={String(option.value)}>{option.label}</option>)}</select> : field.kind === 'boolean' ? <input type="checkbox" checked={Boolean(config[field.id])} onChange={(event) => update(field.id, event.target.checked)} /> : field.kind === 'textarea' ? <textarea rows={4} value={String(config[field.id] ?? '')} placeholder={field.placeholder || 'Enter text…'} onChange={(event) => update(field.id, event.target.value)} /> : <input type={field.kind === 'number' ? 'number' : 'text'} min={field.minimum} max={field.maximum} step={field.step || (['confidence', 'text_threshold'].includes(field.id) ? .05 : field.id === 'mask_threshold' ? .1 : 1)} placeholder={field.placeholder} value={String(config[field.id] ?? '')} onChange={(event) => update(field.id, field.kind === 'number' ? Number(event.target.value) : event.target.value)} />}</label>
+    })}</div>
     {(node.data.nodeType === 'image_source' || node.data.nodeType === 'video_source' || node.data.nodeType === 'model') && <><button className="upload-button" disabled={busy} onClick={() => fileRef.current?.click()}><Upload size={15} />{busy ? 'Working…' : node.data.nodeType === 'model' ? 'Upload weights' : 'Upload asset'}</button><input ref={fileRef} type="file" hidden accept={node.data.nodeType === 'image_source' ? 'image/*' : node.data.nodeType === 'video_source' ? 'video/*' : undefined} onChange={(event) => event.target.files?.[0] && uploadAsset(event.target.files[0])} /></>}
     {node.data.nodeType === 'model' && <div className="model-actions"><button disabled={busy} onClick={() => modelAction('load')}>Load model</button><button disabled={busy} onClick={() => modelAction('unload')}>Unload</button></div>}
   </aside>

@@ -4,10 +4,11 @@ from collections.abc import Callable
 
 import numpy as np
 
-from inference_studio.results import DetectionResult, FeatureResult, InferenceResult, TensorResult
+from inference_studio.results import DetectionResult, FeatureResult, InferenceResult, SegmentationResult, TensorResult
 
 from .detection import render_detections
 from .feature import render_feature
+from .segmentation import render_segmentation
 from .tensor import render_tensor
 
 
@@ -17,6 +18,7 @@ class RendererRegistry:
             "detections": lambda image, result: render_detections(self._require_image(image), DetectionResult.model_validate(result)),
             "feature_map": lambda _image, result: render_feature(FeatureResult.model_validate(result)),
             "embedding": lambda _image, result: render_feature(FeatureResult.model_validate(result)),
+            "segmentation": lambda image, result: render_segmentation(self._require_image(image), SegmentationResult.model_validate(result)),
             "tensor": lambda _image, result: render_tensor(TensorResult.model_validate(result)),
         }
 
@@ -32,4 +34,3 @@ class RendererRegistry:
         if image is None:
             raise ValueError("Detection rendering requires the source image")
         return image
-

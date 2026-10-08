@@ -1,0 +1,16 @@
+# Prompt-model runtimes (Grounding DINO, SAM 2, SAM 3) on top of requirements-runtimes.txt.
+# Install with --no-deps; their remaining dependencies are already in requirements-runtimes.txt:
+#   pip install --no-deps --no-build-isolation -r requirements-prompt-models.txt
+# These build from source, so they are not part of the packaged desktop runtime (prebuilt wheels only).
+
+# Official IDEA-Research Grounding DINO. Builds without nvcc; the adapter then runs its PyTorch
+# multi-scale deformable attention on CUDA and patches its BERT wrapper for Transformers 5.
+groundingdino @ git+https://github.com/IDEA-Research/GroundingDINO.git@856dde20aee659246248e20734ef9ba5214f5e44
+yapf>=0.40,<1
+addict>=2.4,<3
+
+# SAM 2 / 2.1 and SAM 3 run through Ultralytics (8.4.50 tested). SAM 3's text encoder needs the CLIP
+# tokenizer; Ultralytics would otherwise pip-install it at runtime.
+ultralytics>=8.4.50,<9
+clip @ git+https://github.com/ultralytics/CLIP.git@7ffa84b3bfa40c42ecc1c77147a855e69cb2dd40
+ftfy>=6,<7

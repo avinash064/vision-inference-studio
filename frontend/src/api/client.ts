@@ -1,4 +1,4 @@
-import type { Asset, BenchmarkReport, Device, ExecutionEvent, ModelCatalog, NodeDefinition, ValidationIssue, Weight } from '../types'
+import type { Asset, BenchmarkReport, Device, ExecutionEvent, ModelCatalog, NodeDefinition, SystemMetrics, ValidationIssue, Weight } from '../types'
 
 let apiBase = import.meta.env.VITE_API_URL || `http://${location.hostname}:8000`
 let sessionToken = ''
@@ -26,6 +26,7 @@ export const api = {
   nodes: () => request<NodeDefinition[]>('/api/v1/nodes'),
   models: () => request<ModelCatalog>('/api/v1/models'),
   devices: () => request<Device[]>('/api/v1/devices'),
+  systemMetrics: () => request<SystemMetrics>('/api/v1/system/metrics'),
   benchmarks: () => request<Array<BenchmarkReport & { run_id: string }>>('/api/v1/benchmarks'),
   weights: () => request<Weight[]>('/api/v1/weights'),
   validate: (workflow: unknown) => request<{ valid: boolean; issues: ValidationIssue[] }>('/api/v1/workflows/validate', { method: 'POST', body: JSON.stringify(workflow) }),

@@ -1,0 +1,9 @@
+# Optional compatibility runtime for the locally configured chaiNNer Standard catalog.
+-r requirements.txt
+chainner_ext==0.3.10
+PyMatting==1.1.10
+google-re2>=1.0
+wcmatch>=8.4.1
+numba>=0.59
+ffmpeg-python==0.2.0
+pillow-avif-plugin>=1.4.3

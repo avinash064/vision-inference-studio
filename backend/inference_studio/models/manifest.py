@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -15,6 +17,9 @@ class ModelFamily(BaseModel):
     result_type: str
     extensions: list[str]
     versions: dict[str, ModelVersion]
+    prompt_modes: list[Literal["text", "point", "box"]] = Field(default_factory=list)
+    # Optional Model-node fields this family's adapter actually reads; the inspector hides the rest.
+    controls: list[Literal["text_threshold", "mask_threshold", "multimask"]] = Field(default_factory=list)
 
 
 class ModelManifest(BaseModel):
@@ -29,4 +34,3 @@ class WeightRecord(BaseModel):
     sha256: str
     size_bytes: int
     path: str = Field(exclude=True)
-

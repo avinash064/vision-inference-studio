@@ -18,6 +18,8 @@ mkdir -p "$APP_ROOT/backend/inference_studio"
 printf '%s\n' '# smoke fixture' > "$APP_ROOT/requirements.txt"
 printf '%s\n' '-r requirements.txt' > "$APP_ROOT/requirements-runtimes.txt"
 printf '%s\n' '# smoke lock' > "$APP_ROOT/requirements-lock.txt"
+printf '%s\n' '-r requirements.txt' > "$APP_ROOT/requirements-chainner-standard.txt"
+printf '%s\n' '-r requirements-runtimes.txt' > "$APP_ROOT/requirements-desktop.txt"
 cat > "$APP_ROOT/pyproject.toml" <<'EOF'
 [build-system]
 requires = ["setuptools"]

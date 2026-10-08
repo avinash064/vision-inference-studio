@@ -26,11 +26,17 @@ const ignoreGenerated = (source) => {
 
 fs.cpSync(path.join(projectRoot, 'backend', 'inference_studio'), path.join(target, 'backend', 'inference_studio'), { recursive: true, filter: ignoreGenerated })
 fs.cpSync(path.join(projectRoot, 'config'), path.join(target, 'config'), { recursive: true, filter: ignoreGenerated })
-fs.cpSync(path.join(projectRoot, 'frontend', 'dist'), path.join(target, 'dist'), { recursive: true })
+// VIS_FRONTEND_DIST lets a build use a production bundle written outside frontend/dist.
+fs.cpSync(process.env.VIS_FRONTEND_DIST || path.join(projectRoot, 'frontend', 'dist'), path.join(target, 'dist'), { recursive: true })
+// Prebuilt groundingdino/clip wheels (setup-runtime.sh installs them offline) and the chaiNNer source.
+fs.cpSync(path.join(desktopRoot, 'wheels'), path.join(target, 'wheels'), { recursive: true })
+const chainnerSrc = process.env.VIS_CHAINNER_SRC_DIR || path.join(projectRoot, '..', 'src')
+if (!fs.existsSync(chainnerSrc)) throw new Error(`chaiNNer source not found at ${chainnerSrc} (set VIS_CHAINNER_SRC_DIR)`)
+fs.cpSync(chainnerSrc, path.join(target, 'chainner', 'src'), { recursive: true, filter: ignoreGenerated })
 fs.mkdirSync(path.join(target, 'packaging'), { recursive: true })
 fs.cpSync(path.join(projectRoot, 'packaging', 'linux'), path.join(target, 'packaging', 'linux'), { recursive: true })
 fs.cpSync(path.join(desktopRoot, 'assets'), path.join(target, 'assets'), { recursive: true })
-for (const name of ['pyproject.toml', 'requirements.txt', 'requirements-runtimes.txt', 'requirements-lock.txt']) {
+for (const name of ['pyproject.toml', 'requirements.txt', 'requirements-runtimes.txt', 'requirements-chainner-standard.txt', 'requirements-desktop.txt', 'requirements-lock.txt']) {
   fs.copyFileSync(path.join(projectRoot, name), path.join(target, name))
 }
 

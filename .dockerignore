@@ -2,6 +2,9 @@
 *
 !requirements.txt
 !requirements-runtimes.txt
+!requirements-lock.txt
+!requirements-chainner-standard.txt
+!requirements-prompt-models.txt
 !backend/
 !config/
 !frontend/

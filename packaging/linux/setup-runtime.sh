@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-APP_VERSION="${VIS_APP_VERSION:-0.3.0}"
+APP_VERSION="${VIS_APP_VERSION:-0.4.0}"
 SCRIPT_PATH="$(readlink -f "${BASH_SOURCE[0]}")"
 SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
 APP_ROOT="${VIS_APP_ROOT:-$(cd "$SCRIPT_DIR/../.." && pwd)}"
@@ -30,7 +30,7 @@ done
 requirements_hash() {
   local name
   {
-    for name in requirements.txt requirements-runtimes.txt requirements-lock.txt pyproject.toml; do
+    for name in requirements.txt requirements-runtimes.txt requirements-chainner-standard.txt requirements-desktop.txt requirements-lock.txt pyproject.toml; do
       printf '%s\n' "$name"
       cat "$APP_ROOT/$name"
       printf '\n'
@@ -79,7 +79,7 @@ cleanup() {
 trap cleanup EXIT
 trap 'echo "Runtime setup failed at line $LINENO. See $LOG_FILE" >&2' ERR
 
-progress() { printf 'VIS_PROGRESS %s 9 %s\n' "$1" "$2"; }
+progress() { printf 'VIS_PROGRESS %s 10 %s\n' "$1" "$2"; }
 select_python() {
   local candidate version_ok
   # Packaged builds ship their own relocatable CPython; the host Python is only a dev fallback.
@@ -102,7 +102,7 @@ select_python() {
 
 START_SECONDS="$SECONDS"
 progress 1 "Preparing private application directories"
-for file in requirements.txt requirements-runtimes.txt requirements-lock.txt pyproject.toml; do
+for file in requirements.txt requirements-runtimes.txt requirements-chainner-standard.txt requirements-desktop.txt requirements-lock.txt pyproject.toml; do
   [[ -f "$APP_ROOT/$file" ]] || { echo "Missing packaged file: $APP_ROOT/$file" >&2; exit 4; }
 done
 
@@ -149,11 +149,20 @@ INSTALL_START="$SECONDS"
 progress 5 "Installing backend dependencies"
 "$VENV_PYTHON" -m pip install --disable-pip-version-check --only-binary=:all: -c "$APP_ROOT/requirements-lock.txt" -r "$APP_ROOT/requirements.txt"
 
-progress 6 "Installing PyTorch and inference runtimes"
+progress 6 "Installing PyTorch, inference runtimes and chaiNNer support"
 # The lock pins CUDA 12.1 builds of torch/torchvision, which are published on the PyTorch index.
-"$VENV_PYTHON" -m pip install --disable-pip-version-check --only-binary=:all: --extra-index-url https://download.pytorch.org/whl/cu121 -c "$APP_ROOT/requirements-lock.txt" -r "$APP_ROOT/requirements-runtimes.txt"
+"$VENV_PYTHON" -m pip install --disable-pip-version-check --only-binary=:all: --extra-index-url https://download.pytorch.org/whl/cu121 -c "$APP_ROOT/requirements-lock.txt" -r "$APP_ROOT/requirements-desktop.txt"
 
-progress 7 "Installing the Vision Inference Studio backend"
+progress 7 "Installing bundled Grounding DINO and CLIP"
+# Built from pinned source commits at packaging time (pure-Python wheels); offline, no compiler needed.
+shopt -s nullglob
+BUNDLED_WHEELS=("$APP_ROOT"/wheels/*.whl)
+shopt -u nullglob
+if [[ ${#BUNDLED_WHEELS[@]} -gt 0 ]]; then
+  "$VENV_PYTHON" -m pip install --disable-pip-version-check --no-index --no-deps "${BUNDLED_WHEELS[@]}"
+fi
+
+progress 8 "Installing the Vision Inference Studio backend"
 # Build from a private copy: the packaged app root is read-only under /usr/lib.
 BUILD_SRC="$(mktemp -d)"
 cp -r "$APP_ROOT/pyproject.toml" "$APP_ROOT/backend" "$BUILD_SRC/"
@@ -161,7 +170,7 @@ chmod -R u+w "$BUILD_SRC"
 "$VENV_PYTHON" -m pip install --disable-pip-version-check --no-deps "$BUILD_SRC"
 INSTALL_SECONDS=$((SECONDS - INSTALL_START))
 
-progress 8 "Validating required imports and compute support"
+progress 9 "Validating required imports and compute support"
 VALIDATE_START="$SECONDS"
 "$VENV_PYTHON" -m inference_studio.runtime_check --json
 VALIDATE_SECONDS=$((SECONDS - VALIDATE_START))
@@ -171,7 +180,7 @@ if [[ "$NEW_ENV" == "1" ]]; then
   VENV_PYTHON="$VENV_DIR/bin/python"
 fi
 
-progress 9 "Writing deterministic runtime metadata"
+progress 10 "Writing deterministic runtime metadata"
 REQ_HASH="$(requirements_hash)"
 TOTAL_SECONDS=$((SECONDS - START_SECONDS))
 "$VENV_PYTHON" - "$METADATA_FILE" "$APP_VERSION" "$REQ_HASH" "$VENV_SECONDS" "$INSTALL_SECONDS" "$VALIDATE_SECONDS" "$TOTAL_SECONDS" <<'PY'

@@ -30,6 +30,53 @@ families:
       official:
         sizes: [vit-s, vit-b, vit-l]
 
+  grounding-dino:
+    # Official IDEA-Research implementation: tiny = groundingdino_swint_ogc.pth, base = groundingdino_swinb_cogcoor.pth
+    display_name: Grounding DINO
+    adapter: grounding-dino
+    result_type: detections
+    extensions: [.pth]
+    prompt_modes: [text]
+    controls: [text_threshold]
+    versions:
+      official:
+        sizes: [tiny, base]
+
+  sam:
+    display_name: Segment Anything (SAM)
+    adapter: sam
+    result_type: segmentation
+    extensions: [.safetensors, .bin, .pth, .pt]
+    prompt_modes: [point, box]
+    controls: [mask_threshold, multimask]
+    versions:
+      v1:
+        sizes: [vit-b, vit-l, vit-h]
+
+  sam2:
+    # Meta SAM 2 / 2.1 checkpoints (sam2.1_hiera_*.pt) or the Ultralytics mirrors (sam2.1_b.pt …), run by Ultralytics
+    display_name: Segment Anything 2 (SAM 2)
+    adapter: sam2
+    result_type: segmentation
+    extensions: [.pt]
+    prompt_modes: [point, box]
+    versions:
+      "2.1":
+        sizes: [tiny, small, base-plus, large]
+      "2.0":
+        sizes: [tiny, small, base-plus, large]
+
+  sam3:
+    # sam3.pt from the gated facebook/sam3 Hugging Face repo, run by Ultralytics
+    display_name: Segment Anything 3 (SAM 3)
+    adapter: sam3
+    result_type: segmentation
+    extensions: [.pt]
+    prompt_modes: [text, point, box]
+    versions:
+      "3.0":
+        sizes: [base]
+
   onnx:
     display_name: Generic ONNX
     adapter: onnx
@@ -38,4 +85,3 @@ families:
     versions:
       generic:
         sizes: [custom]
-

@@ -9,13 +9,18 @@ from inference_studio.assets import AssetError
 from inference_studio.models.registry import ModelRegistryError
 from inference_studio.models.weights import WeightError
 from inference_studio.renderers import RendererRegistry
-from inference_studio.results import FeatureResult, TensorResult
+from inference_studio.results import FeatureResult, SegmentationMask, SegmentationResult, TensorResult
 from inference_studio.nodes import NodeRegistry
 
 
 def test_model_registry_contains_declared_families(model_registry):
-    assert set(model_registry.manifest.families) == {"yolo", "rfdetr", "dinov3", "onnx"}
+    assert set(model_registry.manifest.families) == {"yolo", "rfdetr", "dinov3", "grounding-dino", "sam", "sam2", "sam3", "onnx"}
     assert model_registry.validate_selection("yolo", "v11", "n").adapter == "yolo"
+    assert model_registry.validate_selection("grounding-dino", "official", "tiny").prompt_modes == ["text"]
+    assert model_registry.validate_selection("sam", "v1", "vit-b").prompt_modes == ["point", "box"]
+    assert model_registry.validate_selection("sam2", "2.1", "base-plus").adapter == "sam2"
+    assert model_registry.validate_selection("sam3", "3.0", "base").prompt_modes == ["text", "point", "box"]
+    assert model_registry.validate_selection("grounding-dino", "official", "tiny").controls == ["text_threshold"]
     with pytest.raises(ModelRegistryError):
         model_registry.validate_selection("dinov3", "official", "not-a-size")
 
@@ -25,7 +30,8 @@ def test_node_registry_exposes_typed_server_definitions():
     assert {item.type for item in registry.list()} >= {"image_source", "video_source", "model", "detection_preview"}
     model = registry.get("model")
     assert model.inputs[0].data_types == ["image", "video"]
-    assert "detections" in model.outputs[0].data_types
+    assert {"detections", "segmentation"}.issubset(model.outputs[0].data_types)
+    assert registry.get("segmentation_preview").inputs[0].data_types == ["segmentation"]
 
 
 def test_weight_store_uses_internal_ids_and_family_directories(stores):
@@ -55,3 +61,16 @@ def test_renderer_registry_selects_standard_result_renderer():
     tensor = registry.render(None, TensorResult(shape=[2], dtype="float32", values=[1, 2]))
     assert feature.shape == (512, 512, 3)
     assert tensor.shape == (360, 640, 3)
+
+
+def test_renderer_registry_overlays_segmentation_polygons():
+    registry = RendererRegistry()
+    image = __import__("numpy").zeros((40, 50, 3), dtype="uint8")
+    result = SegmentationResult(
+        prompt_mode="box",
+        prompt="5,5,30,30",
+        masks=[SegmentationMask(class_id=0, label="segment 1", confidence=.9, bbox=[5, 5, 30, 30], area=625, polygons=[[5, 5, 30, 5, 30, 30, 5, 30]])],
+    )
+    rendered = registry.render(image, result)
+    assert rendered.shape == image.shape
+    assert rendered.sum() > 0

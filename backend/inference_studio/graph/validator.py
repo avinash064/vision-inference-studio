@@ -5,6 +5,7 @@ from inference_studio.assets import AssetError, AssetStore
 from inference_studio.models.registry import ModelRegistry, ModelRegistryError
 from inference_studio.models.weights import WeightError, WeightStore
 from inference_studio.nodes import NodeRegistry
+from inference_studio.adapters.huggingface import parse_coordinates
 
 from .planner import CycleError, topological_sort
 from .schema import ValidationIssue, ValidationResult, Workflow
@@ -25,6 +26,9 @@ class WorkflowValidator:
                 definition = self.nodes.get(node.type)
             except ValueError as exc:
                 issues.append(ValidationIssue(code="unknown_node", message=str(exc), node_id=node.id))
+                continue
+            if not definition.available:
+                issues.append(ValidationIssue(code="node_unavailable", message=definition.availability_reason or f"{definition.label} is unavailable", node_id=node.id))
                 continue
             for field in definition.config:
                 value = node.config.get(field.id, field.default)
@@ -85,10 +89,21 @@ class WorkflowValidator:
         if node.type == "model" and all(node.config.get(key) not in (None, "") for key in ("family", "version", "size", "weight_id")):
             try:
                 config = ModelConfig.model_validate(node.config)
-                self.models.validate_selection(config.family, config.version, config.size)
+                family = self.models.validate_selection(config.family, config.version, config.size)
                 self.weights.get(config.weight_id, config.family)
                 if config.precision == "fp16" and config.device == "cpu":
                     raise ValueError("fp16 requires a CUDA device")
+                if family.prompt_modes:
+                    if config.prompt_mode not in family.prompt_modes:
+                        raise ValueError(f"{family.display_name} requires one of these prompt modes: {', '.join(family.prompt_modes)}")
+                    if config.prompt_mode == "text" and not config.text_prompt.strip():
+                        raise ValueError("Text prompt is required")
+                    if config.prompt_mode == "point":
+                        parse_coordinates(config.point_prompt, 2, "Point prompt")
+                    if config.prompt_mode == "box":
+                        box = parse_coordinates(config.box_prompt, 4, "Box prompt")
+                        if box[2] <= box[0] or box[3] <= box[1]:
+                            raise ValueError("Box prompt must have x2 > x1 and y2 > y1")
             except (ValueError, ModelRegistryError, WeightError) as exc:
                 issues.append(ValidationIssue(code="invalid_model", message=str(exc), node_id=node.id))
 
@@ -112,4 +127,3 @@ class WorkflowValidator:
             return [self.models.get(str(node.config.get("family"))).result_type]
         except ModelRegistryError:
             return declared
-

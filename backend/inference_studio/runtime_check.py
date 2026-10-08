@@ -20,6 +20,11 @@ REQUIRED_IMPORTS = {
     "ultralytics": "ultralytics",
     "rfdetr": "rfdetr",
     "onnxruntime": "onnxruntime-gpu",
+    "transformers": "transformers",
+    "safetensors": "safetensors",
+    "groundingdino": "groundingdino",
+    "clip": "clip",
+    "chainner_ext": "chainner_ext",
 }
 
 

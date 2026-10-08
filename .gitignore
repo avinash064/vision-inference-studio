@@ -9,16 +9,23 @@ out/
 desktop/out/
 desktop/resources/
 desktop/vendor/
+desktop/wheels/
 *.tsbuildinfo
 frontend/vite.config.js
 frontend/vite.config.d.ts
 workspace/assets/*
 workspace/previews/*
 workspace/benchmarks/*
+workspace/reports/*
+workspace/chainner-storage/*
 workspace/*.json
 weights/yolo/*
 weights/rfdetr/*
 weights/dinov3/*
+weights/grounding-dino/*
+weights/sam2/*
+weights/sam3/*
+weights/sam/*
 weights/onnx/*
 workflows/*.json
 !workspace/assets/.gitkeep
@@ -26,3 +33,13 @@ workflows/*.json
 !workspace/benchmarks/.gitkeep
 !weights/**/.gitkeep
 !workflows/.gitkeep
+
+# Release binaries and bundled model data are published as GitHub Release assets, not committed
+release*/**/*.deb
+release*/**/*.tar.gz
+release*/**/*.tar
+release*/**/*.zip
+release*/data/
+release*/stage/
+# Benchmark reports written by local runs
+benchmarks/run_*.json

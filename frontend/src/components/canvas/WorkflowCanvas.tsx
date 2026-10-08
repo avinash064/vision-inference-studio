@@ -27,6 +27,6 @@ export function WorkflowCanvas() {
       <MiniMap position="bottom-right" pannable zoomable nodeColor="#7857ff" maskColor="rgba(7,10,17,.76)" />
     </ReactFlow>
     {nodes.length === 0 && <div className="empty-canvas"><span>01</span><h2>Compose your first inference graph</h2><p>Drag an input, connect a model, and finish with a preview.</p><button onDoubleClick={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); createExample() }}>Create example pipeline</button></div>}
-    {picker && <div className="quick-picker" style={{ left: picker.x, top: picker.y }} onDoubleClick={(event) => event.stopPropagation()}>{definitions.map((item) => <button key={item.type} onClick={() => { addNode(item.type, screenToFlowPosition(picker)); setPicker(undefined) }}>{item.label}<small>{item.category}</small></button>)}</div>}
+    {picker && <div className="quick-picker" style={{ left: picker.x, top: picker.y }} onDoubleClick={(event) => event.stopPropagation()}>{definitions.filter((item) => item.available).map((item) => <button key={item.type} onClick={() => { addNode(item.type, screenToFlowPosition(picker)); setPicker(undefined) }}>{item.label}<small>{item.provider === 'chainner' ? `${item.package} · ${item.group}` : item.category}</small></button>)}</div>}
   </main>
 }

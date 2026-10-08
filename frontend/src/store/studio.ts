@@ -19,7 +19,7 @@ export const useStudio = create<StudioState>((set, get) => ({
   definitions: [], devices: [], weights: [], nodes: [], edges: [], issues: [], events: [], benchmarks: {}, runState: 'IDLE',
   initialize: (data) => set(data),
   addNode: (type, position) => {
-    const definition = get().definitions.find((item) => item.type === type); if (!definition) return
+    const definition = get().definitions.find((item) => item.type === type); if (!definition?.available) return
     const config = Object.fromEntries(definition.config.filter((field) => field.default !== null && field.default !== undefined).map((field) => [field.id, field.default]))
     set((state) => ({ nodes: [...state.nodes, { id: `node_${sequence++}`, type: 'studio', position, data: { nodeType: type, label: definition.label, config } }] }))
   },

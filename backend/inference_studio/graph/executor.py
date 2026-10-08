@@ -13,6 +13,7 @@ import cv2
 
 from inference_studio.adapters import ModelConfig
 from inference_studio.assets import AssetStore
+from inference_studio.chainner import ChainnerImageAdapter, ChainnerNodeExecutor, ChainnerOutputs
 from inference_studio.models import ModelManager
 from inference_studio.nodes.runtime import ImageValue, ModelOutput, VideoModelStream, VideoValue
 from inference_studio.renderers import RendererRegistry
@@ -56,12 +57,13 @@ class Execution:
 
 
 class ExecutionEngine:
-    def __init__(self, validator: WorkflowValidator, assets: AssetStore, manager: ModelManager, preview_dir: Path, benchmark_dir: Path | None = None, preview_retention: int = 10) -> None:
+    def __init__(self, validator: WorkflowValidator, assets: AssetStore, manager: ModelManager, preview_dir: Path, benchmark_dir: Path | None = None, preview_retention: int = 10, chainner: ChainnerNodeExecutor | None = None) -> None:
         self.validator, self.assets, self.manager = validator, assets, manager
         self.preview_dir = preview_dir
         self.benchmark_dir = benchmark_dir or preview_dir.parent / "benchmarks"
         self.preview_retention = max(1, preview_retention)
         self.renderers = RendererRegistry()
+        self.chainner = chainner
         self.preview_dir.mkdir(parents=True, exist_ok=True)
         self.benchmark_dir.mkdir(parents=True, exist_ok=True)
         self.executions: dict[str, Execution] = {}
@@ -184,7 +186,7 @@ class ExecutionEngine:
                 node_started = perf_counter()
                 state = "loading" if node.type == "model" else "running"
                 await self.publish(execution, {"type": "node_state", "event": "node_started", "node_id": node_id, "state": state})
-                incoming = {edge.target_handle: values[edge.source] for edge in execution.workflow.edges if edge.target == node_id}
+                incoming = {edge.target_handle: self._edge_value(values[edge.source], edge.source_handle) for edge in execution.workflow.edges if edge.target == node_id}
                 values[node_id] = await self._run_node(execution, node, incoming)
                 await self.publish(execution, {"type": "node_state", "event": "node_completed", "node_id": node_id, "state": "success", "duration_ms": (perf_counter() - node_started) * 1000})
             execution.state = RunState.COMPLETED
@@ -197,6 +199,15 @@ class ExecutionEngine:
             if current_node_id is not None:
                 await self.publish(execution, {"type": "node_state", "event": "node_failed", "node_id": current_node_id, "state": "error", "error": str(exc)})
             await self.publish(execution, {"type": "run_state", "event": "workflow_failed", "state": execution.state, "error": str(exc)})
+
+    @staticmethod
+    def _edge_value(value: Any, source_handle: str) -> Any:
+        if isinstance(value, ChainnerOutputs):
+            try:
+                return value.values[source_handle]
+            except KeyError as exc:
+                raise ValueError(f"Unknown chaiNNer output port: {source_handle}") from exc
+        return value
 
     async def _run_node(self, execution: Execution, node, inputs: dict[str, Any]):
         if node.type in {"image_source", "video_source"}:
@@ -224,6 +235,10 @@ class ExecutionEngine:
             gray = cv2.cvtColor(value.image, cv2.COLOR_BGR2GRAY)
             _, result = cv2.threshold(gray, float(node.config.get("value", 127)), 255, cv2.THRESH_BINARY)
             return ImageValue(image=cv2.cvtColor(result, cv2.COLOR_GRAY2BGR), asset=value.asset)
+        if node.type.startswith("chainner:"):
+            if self.chainner is None:
+                raise RuntimeError("chaiNNer integration is not configured")
+            return await self.chainner.execute(node.type, node.config, inputs, execution, node.id, self.publish)
         if node.type == "model":
             config = ModelConfig.model_validate(node.config)
             value = inputs["input"]
@@ -234,13 +249,20 @@ class ExecutionEngine:
                 return VideoModelStream(asset=value.asset, config=config, frame_stride=value.frame_stride, warmup_frames=value.warmup_frames, benchmark_frames=value.benchmark_frames)
             await self.manager.load(config)
             await self.publish(execution, {"type": "node_state", "event": "node_started", "node_id": node.id, "state": "running"})
-            result = await self.manager.predict(config, value.image)
+            image = ChainnerImageAdapter.to_vision(value.image)
+            result = await self.manager.predict(config, image)
             await self.publish(execution, {"type": "inference_result", "event": "inference_completed", "node_id": node.id, "model": config.model_dump(mode="json"), "result": result.model_dump(mode="json")})
-            return ModelOutput(image=value.image, result=result, config=config)
+            return ModelOutput(image=image, result=result, config=config)
         if node.type == "video_preview":
             return await self._run_video(execution, node.id, inputs["result"])
+        if node.type == "image_preview":
+            image = ChainnerImageAdapter.to_vision(inputs["image"].image)
+            original_url = await self._save_preview(execution.run_id, node.id, image, label="original")
+            prediction_url = await self._save_preview(execution.run_id, node.id, image, label="prediction")
+            await self.publish(execution, {"type": "preview", "event": "preview_ready", "node_id": node.id, "url": prediction_url, "original_url": original_url, "prediction_url": prediction_url})
+            return {"original_url": original_url, "prediction_url": prediction_url}
         output = inputs["result"]
-        expected = {"detection_preview": "detections", "feature_preview": ("feature_map", "embedding"), "tensor_preview": "tensor"}[node.type]
+        expected = {"detection_preview": "detections", "segmentation_preview": "segmentation", "feature_preview": ("feature_map", "embedding"), "tensor_preview": "tensor"}[node.type]
         if output.result.result_type not in ((expected,) if isinstance(expected, str) else expected):
             raise ValueError(f"{node.type} cannot render {output.result.result_type}")
         canvas = self.renderers.render(output.image, output.result)
@@ -285,7 +307,7 @@ class ExecutionEngine:
                 total_frame_ms = (perf_counter() - frame_started) * 1000
                 frame_result = VideoFrameResult(frame_index=packet.index, timestamp_seconds=packet.timestamp_seconds, result=result)
                 frame_metrics = {"decode_ms": packet.decode_ms, "preprocess_ms": result.metrics.preprocess_ms, "inference_ms": result.metrics.inference_ms, "postprocess_ms": result.metrics.postprocess_ms, "render_ms": render_ms, "publish_ms": 0.0, "total_frame_ms": total_frame_ms, "model_fps": 1000 / result.metrics.inference_ms if result.metrics.inference_ms else 0, "effective_fps": 1000 / total_frame_ms if total_frame_ms else 0}
-                event = {"type": "video_frame", "event": "frame_processed", "node_id": node_id, "frame": packet.index, "frame_index": packet.index, "frame_count": stream.asset.frame_count, "timestamp_seconds": packet.timestamp_seconds, "duration_seconds": stream.asset.duration_seconds, "progress": (packet.index + 1) / max(stream.asset.frame_count or 1, 1), "fps": stream.asset.fps, "url": url, "preview_url": url, "model": model, "frame_result": frame_result.model_dump(mode="json"), "result": result.model_dump(mode="json"), "metrics": frame_metrics, "object_count": len(getattr(result, "detections", [])), "gpu": gpu}
+                event = {"type": "video_frame", "event": "frame_processed", "node_id": node_id, "frame": packet.index, "frame_index": packet.index, "frame_count": stream.asset.frame_count, "timestamp_seconds": packet.timestamp_seconds, "duration_seconds": stream.asset.duration_seconds, "progress": (packet.index + 1) / max(stream.asset.frame_count or 1, 1), "fps": stream.asset.fps, "url": url, "preview_url": url, "model": model, "frame_result": frame_result.model_dump(mode="json"), "result": result.model_dump(mode="json"), "metrics": frame_metrics, "object_count": len(getattr(result, "detections", getattr(result, "masks", []))), "gpu": gpu}
                 publish_started = perf_counter()
                 await self.publish(execution, event)
                 frame_metrics["publish_ms"] = (perf_counter() - publish_started) * 1000

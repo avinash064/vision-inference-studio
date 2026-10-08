@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
 
@@ -18,6 +19,14 @@ def services(request: Request):
 @router.get("/nodes")
 def list_nodes(request: Request):
     return [node.model_dump(mode="json") for node in services(request).nodes.list()]
+
+
+@router.get("/chainner/report")
+def chainner_report(request: Request):
+    adapter = services(request).chainner
+    if adapter is None:
+        raise HTTPException(404, "chaiNNer source is not configured or discovery failed")
+    return adapter.report
 
 
 @router.get("/models")
@@ -42,6 +51,47 @@ def list_devices():
     except ImportError:
         pass
     return devices
+
+
+@router.get("/system/metrics")
+def system_metrics():
+    import psutil
+
+    memory = psutil.virtual_memory()
+    result = {
+        "cpu": {
+            "percent": psutil.cpu_percent(interval=None),
+            "memory_percent": memory.percent,
+            "memory_used_gb": round(memory.used / 1024**3, 2),
+            "memory_total_gb": round(memory.total / 1024**3, 2),
+            "load": list(os.getloadavg()),
+        },
+        "gpu": None,
+    }
+    try:
+        import pynvml
+
+        pynvml.nvmlInit()
+        handle = pynvml.nvmlDeviceGetHandleByIndex(0)
+        utilization = pynvml.nvmlDeviceGetUtilizationRates(handle)
+        gpu_memory = pynvml.nvmlDeviceGetMemoryInfo(handle)
+        name = pynvml.nvmlDeviceGetName(handle)
+        result["gpu"] = {
+            "name": name.decode() if isinstance(name, bytes) else str(name),
+            "percent": float(utilization.gpu),
+            "memory_percent": round(gpu_memory.used / gpu_memory.total * 100, 1),
+            "memory_used_mb": round(gpu_memory.used / 1024**2),
+            "memory_total_mb": round(gpu_memory.total / 1024**2),
+            "temperature_c": pynvml.nvmlDeviceGetTemperature(handle, pynvml.NVML_TEMPERATURE_GPU),
+        }
+    except Exception:
+        pass
+    finally:
+        try:
+            pynvml.nvmlShutdown()
+        except Exception:
+            pass
+    return result
 
 
 @router.get("/benchmarks")

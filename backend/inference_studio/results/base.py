@@ -25,6 +25,7 @@ ResultType = Literal[
     "detections",
     "feature_map",
     "embedding",
+    "segmentation",
     "tensor",
     "heatmap",
 ]

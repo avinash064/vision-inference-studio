@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Per-user install of the portable Vision Inference Studio build (no .deb needed).
-#   ./install.sh [--weights <weights.tar|weights-dir>] [--setup-runtime] [--prefix <dir>]
+#   ./install.sh [--data <bundle data dir>] [--weights <weights.tar|weights-dir>] [--setup-runtime] [--prefix <dir>]
 set -Eeuo pipefail
 
 HERE="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
@@ -9,10 +9,12 @@ DATA_ROOT="${XDG_DATA_HOME:-$HOME/.local/share}/vision-inference-studio"
 BIN_DIR="$HOME/.local/bin"
 APPS_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
 WEIGHTS=""
+DATA=""
 SETUP_RUNTIME=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --data) DATA="${2:?--data needs a path}"; shift 2 ;;
     --weights) WEIGHTS="${2:?--weights needs a path}"; shift 2 ;;
     --setup-runtime) SETUP_RUNTIME=1; shift ;;
     --prefix) PREFIX="${2:?--prefix needs a path}"; shift 2 ;;
@@ -91,6 +93,15 @@ sed -e "s|^Exec=.*|Exec=$BIN_DIR/vision-inference-studio %U|" \
     "$PREFIX/resources/packaging/linux/vision-inference-studio.desktop" > "$APPS_DIR/vision-inference-studio.desktop"
 command -v update-desktop-database >/dev/null 2>&1 && update-desktop-database "$APPS_DIR" >/dev/null 2>&1 || true
 
+if [[ -n "$DATA" ]]; then
+  # Bundle data/: weights/ (every model, already registered) and huggingface/ (offline SAM / Grounding DINO files).
+  [[ -d "$DATA/weights" ]] || { echo "Not a bundle data directory (no weights/): $DATA" >&2; exit 1; }
+  say "Importing model weights and Hugging Face files into $DATA_ROOT"
+  mkdir -p "$DATA_ROOT"
+  cp -a "$DATA"/. "$DATA_ROOT/"
+  find "$DATA_ROOT/weights" -name 'wgt_*.json' -printf '  %P\n'
+fi
+
 if [[ -n "$WEIGHTS" ]]; then
   say "Importing model weights into $DATA_ROOT/weights"
   mkdir -p "$DATA_ROOT"
@@ -106,7 +117,7 @@ if [[ -n "$WEIGHTS" ]]; then
 fi
 
 if [[ "$SETUP_RUNTIME" == 1 ]]; then
-  say "Creating the inference runtime (about 4 GB download: PyTorch, Ultralytics, RF-DETR, ONNX Runtime)"
+  say "Creating the inference runtime (about 4 GB download: PyTorch, Ultralytics, RF-DETR, ONNX Runtime, chaiNNer support)"
   bash "$PREFIX/resources/packaging/linux/setup-runtime.sh" --mode install
 fi
 
