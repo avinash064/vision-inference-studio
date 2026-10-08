@@ -5,6 +5,10 @@ __pycache__/
 .pytest_cache/
 node_modules/
 dist/
+out/
+desktop/out/
+desktop/resources/
+desktop/vendor/
 *.tsbuildinfo
 frontend/vite.config.js
 frontend/vite.config.d.ts

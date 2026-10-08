@@ -1,0 +1,28 @@
+{
+  "name": "vision-inference-studio",
+  "productName": "Vision Inference Studio",
+  "version": "0.3.0",
+  "description": "Local visual workflow studio for real image and video inference",
+  "author": "Vision Inference Studio",
+  "license": "UNLICENSED",
+  "private": true,
+  "main": "dist/main.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "stage": "node scripts/stage-resources.mjs",
+    "build:frontend": "npm --prefix ../frontend run build",
+    "desktop:dev": "npm run build:frontend && npm run build && npm run stage && electron-forge start",
+    "desktop:package": "npm run build:frontend && npm run build && npm run stage && electron-forge package",
+    "desktop:make": "npm run build:frontend && npm run build && npm run stage && electron-forge make",
+    "desktop:make:linux": "npm run build:frontend && npm run build && npm run stage && electron-forge make --platform=linux --arch=x64",
+    "test": "npm run build"
+  },
+  "devDependencies": {
+    "@electron-forge/cli": "8.0.1",
+    "@electron-forge/maker-deb": "8.0.1",
+    "@electron-forge/maker-zip": "8.0.1",
+    "@types/node": "22.15.3",
+    "electron": "44.6.0",
+    "typescript": "5.8.3"
+  }
+}

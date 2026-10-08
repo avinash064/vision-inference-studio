@@ -1,14 +1,28 @@
 import type { Asset, BenchmarkReport, Device, ExecutionEvent, ModelCatalog, NodeDefinition, ValidationIssue, Weight } from '../types'
 
-export const API_BASE = import.meta.env.VITE_API_URL || `http://${location.hostname}:8000`
+let apiBase = import.meta.env.VITE_API_URL || `http://${location.hostname}:8000`
+let sessionToken = ''
+
+export const getApiBase = () => apiBase
+
+async function bootstrap() {
+  if (!window.visionDesktop) return
+  const value = await window.visionDesktop.getBootstrap()
+  apiBase = value.apiBase
+  sessionToken = value.sessionToken
+}
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${API_BASE}${path}`, { ...init, headers: init?.body instanceof FormData ? init.headers : { 'Content-Type': 'application/json', ...init?.headers } })
+  const headers = new Headers(init?.headers)
+  if (!(init?.body instanceof FormData)) headers.set('Content-Type', 'application/json')
+  if (sessionToken) headers.set('X-Vision-Session', sessionToken)
+  const response = await fetch(`${apiBase}${path}`, { ...init, headers })
   if (!response.ok) { const body = await response.json().catch(() => ({})); throw new Error(body.detail || `${response.status} ${response.statusText}`) }
   return response.json()
 }
 
 export const api = {
+  bootstrap,
   nodes: () => request<NodeDefinition[]>('/api/v1/nodes'),
   models: () => request<ModelCatalog>('/api/v1/models'),
   devices: () => request<Device[]>('/api/v1/devices'),
@@ -25,7 +39,11 @@ export const api = {
   upload: async (kind: 'image' | 'video', file: File) => { const body = new FormData(); body.append('file', file); return request<Asset>(`/api/v1/assets/${kind}`, { method: 'POST', body }) },
   uploadWeight: async (family: string, file: File) => { const body = new FormData(); body.append('family', family); body.append('file', file); return request<Weight>('/api/v1/weights', { method: 'POST', body }) },
   subscribe: (runId: string, onEvent: (event: ExecutionEvent) => void) => {
-    const base = API_BASE.replace(/^http/, 'ws'); const socket = new WebSocket(`${base}/api/v1/executions/${runId}`)
-    socket.onmessage = (message) => onEvent(JSON.parse(message.data)); return socket
+    const base = apiBase.replace(/^http/, 'ws')
+    const socket = sessionToken
+      ? new WebSocket(`${base}/api/v1/executions/${runId}`, ['vision-session', sessionToken])
+      : new WebSocket(`${base}/api/v1/executions/${runId}`)
+    socket.onmessage = (message) => onEvent(JSON.parse(message.data))
+    return socket
   },
 }

@@ -15,6 +15,7 @@ from inference_studio.graph.store import WorkflowStore
 from inference_studio.graph.validator import WorkflowValidator
 from inference_studio.models import ModelManager, ModelRegistry, WeightStore
 from inference_studio.nodes import NodeRegistry
+from inference_studio.security import DesktopSessionMiddleware, websocket_protocol
 
 
 @dataclass
@@ -39,20 +40,25 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     nodes = NodeRegistry()
     manager = ModelManager(models, weights, AdapterRegistry())
     validator = WorkflowValidator(nodes, models, weights, assets)
-    engine = ExecutionEngine(validator, assets, manager, config.workspace_dir / "previews", config.workspace_dir / "benchmarks")
-    app = FastAPI(title="Vision Inference Studio", version="0.2.0")
+    engine = ExecutionEngine(validator, assets, manager, config.workspace_dir / "previews", config.benchmarks_dir)
+    app = FastAPI(title="Vision Inference Studio", version="0.3.0")
     app.state.services = Services(config, nodes, models, weights, assets, manager, validator, engine, WorkflowStore(config.workflows_dir))
-    app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:5173", "http://127.0.0.1:5173", "http://localhost:5174", "http://127.0.0.1:5174"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
+    app.add_middleware(CORSMiddleware, allow_origins=["null", "http://localhost:5173", "http://127.0.0.1:5173", "http://localhost:5174", "http://127.0.0.1:5174"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
+    app.add_middleware(DesktopSessionMiddleware)
     app.include_router(router)
     app.mount("/previews", StaticFiles(directory=config.workspace_dir / "previews"), name="previews")
 
     @app.get("/health")
     def health():
-        return {"status": "ok", "version": "0.2.0"}
+        return {"status": "ok", "version": "0.3.0"}
 
     @app.websocket("/api/v1/executions/{run_id}")
     async def websocket_route(websocket: WebSocket, run_id: str):
-        await execution_socket(websocket, run_id)
+        protocol = websocket_protocol(websocket)
+        if protocol == "":
+            await websocket.close(code=1008, reason="Invalid desktop session")
+            return
+        await execution_socket(websocket, run_id, protocol)
 
     return app
 

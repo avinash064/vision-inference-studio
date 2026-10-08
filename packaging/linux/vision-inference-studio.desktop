@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Vision Inference Studio
+GenericName=AI Inference Workflow Studio
+Comment=Run visual image and video inference workflows locally
+Exec=vision-inference-studio
+Icon=vision-inference-studio
+Terminal=false
+Categories=Graphics;Development;Science;
+StartupNotify=true
+StartupWMClass=Vision Inference Studio
