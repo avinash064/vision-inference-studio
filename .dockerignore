@@ -1,0 +1,13 @@
+# Allowlist: images only need these. Keeps weights, release bundles, desktop builds and venvs out of the context.
+*
+!requirements.txt
+!requirements-runtimes.txt
+!backend/
+!config/
+!frontend/
+backend/tests
+frontend/node_modules
+frontend/dist
+**/__pycache__
+**/*.pyc
+**/*.tsbuildinfo
