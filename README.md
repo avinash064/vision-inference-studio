@@ -148,6 +148,7 @@ The backend Dockerfile supports `--build-arg INSTALL_RUNTIMES=1`. NVIDIA contain
 6. Select **Validate**, then **Run**. Nodes visibly progress through waiting → loading/running → success/error, active edges animate, and results stream into the dock.
 7. Toggle **Original** / **Prediction** in the dock and inspect preprocessing, inference, postprocessing, total time, object count, GPU allocated/reserved/peak memory, and device name.
 8. Video decoding is sequential; Pause/Resume/Stop operate at frame checkpoints without buffering the whole file.
+9. Resize **Live Output** by dragging its top grip to change height or its right-side divider to change width. The selected dimensions persist across reloads and desktop restarts.
 
 For video, configure the Video source with `frame_stride`, warm-up frames, and an optional benchmark-frame limit. A stride of 1 infers every source frame; a stride of 5 infers source frames 0, 5, 10, and so on while retaining source timestamps. Models are loaded once by the Model node and reused for every frame.
 
