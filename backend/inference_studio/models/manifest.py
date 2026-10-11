@@ -22,9 +22,19 @@ class ModelFamily(BaseModel):
     controls: list[Literal["text_threshold", "mask_threshold", "multimask"]] = Field(default_factory=list)
 
 
+class FeatureExtractorDefinition(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    display_name: str
+    family: str
+    stages: list[str] = Field(min_length=1)
+    version: str
+    variant: str
+
+
 class ModelManifest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     families: dict[str, ModelFamily]
+    feature_extractors: dict[str, FeatureExtractorDefinition] = Field(default_factory=dict)
 
 
 class WeightRecord(BaseModel):

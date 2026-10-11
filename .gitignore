@@ -43,3 +43,6 @@ release*/data/
 release*/stage/
 # Benchmark reports written by local runs
 benchmarks/run_*.json
+
+# Frozen Mahalanobis geometries (calibration artifacts tied to local data)
+feature_geometries/

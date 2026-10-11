@@ -1,8 +1,8 @@
-# Vision Inference Studio v0.4
+# Vision Inference Studio v0.5
 
 A local, node-based computer-vision inference workbench built independently with React Flow and FastAPI. Compose a typed DAG, upload assets and model weights through opaque IDs, validate the workflow, and run image or sequential video inference while results stream back over WebSocket.
 
-> Status: v0.4 adds Grounding DINO (official IDEA-Research implementation), SAM, SAM 2/2.1, SAM 3, dynamic import of the local chaiNNer registry, and live CPU/GPU utilization rings. On this workstation, 179 chaiNNer registrations are represented in the library: 162 runtime-discovered nodes and 17 unavailable nodes with explicit reasons. The official SAM ViT-B checkpoint also passes a CUDA/FP16 load test, and Grounding DINO, SAM 2.1 and SAM 3 pass real CUDA inference through the API (see Acceptance status). Existing real image/video CUDA acceptance for RF-DETR and YOLO remains unchanged.
+> Status: v0.5 adds concurrency-safe cached models, run-scoped cleanup, metadata-driven chaiNNer values, persisted package settings, lazy streams, and a GPU-preserving DINOv3 feature runtime with normalize, difference, feature-preview, and heatmap-preview nodes. Existing v0.4 prompt models, image workflows, and the dedicated file-video engine remain compatible.
 
 ## Screenshots
 
@@ -26,20 +26,21 @@ FastAPI ── asset/weight stores (opaque IDs only)
 WorkflowValidator ── types, ports, config, assets, weights, DAG
       │
       ▼
-Topological planner → ExecutionEngine → WebSocket events
+ExecutionPlan → ExecutionEngine + ExecutionScope → WebSocket events
             │                 │
-            │                 └── ChainnerNodeExecutor → local chaiNNer registry
-            │                                      regular / generator / transformer / collector
+            │                 ├── ChainnerNodeExecutor → typed lazy StreamValue
+            │                 │                    regular / generator / transformer / collector
+            │                 └── FeatureStore → normalize / difference / heatmap
                               │
                               ▼
-                       ModelManager cache
+                ModelManager immutable-key cache
                               │
                     AdapterRegistry / ModelAdapter
                     ┌─────────┼─────────┬──────────┬────────────────┬──────┐
                   YOLO     RF-DETR    DINOv3     ONNX       Grounding DINO  SAM / SAM 2 / SAM 3
                     └─────────┼─────────┴──────────┴────────────────┴──────┘
                               ▼
-                     standard InferenceResult
+             InferenceResult or FeatureArtifact
                               │
                               ▼
                        RendererRegistry
@@ -62,6 +63,17 @@ The five boundaries are explicit:
 - **Renderers** convert standardized results into previews. Adapters never draw.
 - **Frontend** knows nodes, ports, edges, configuration, and status—never PyTorch, CUDA tensors, or model internals.
 
+## What changed in v0.5
+
+- `ModelConfig` remains the workflow/API shape, but execution splits it into immutable `ModelKey` identity and per-call `InferenceRequest` settings. Cached `LoadedModel` objects contain only identity/checkpoint data. A load lock prevents duplicate deserialization, while a separate adapter-sized semaphore (default `1`) serializes unsafe inference handles without leaking confidence or prompt state.
+- Every run owns an `ExecutionScope`. Node callbacks execute LIFO when that node ends; chain callbacks, open streams, and run-owned feature artifacts execute/release LIFO when the workflow completes, errors, or is cancelled. Cached model handles remain reusable across runs.
+- Runtime values explicitly distinguish images, tensors, features, heatmaps, streams, video, and model results. `ChainnerValueAdapter` consults the declared Navi port type, so a 2D/3D NumPy array is no longer assumed to be an image.
+- chaiNNer generators, regular stream mapping, and transformers are lazy. Collectors consume one item at a time, stream length is retained when supplied, cancellation/pause checks occur between items, and non-replayable fan-out is rejected with `non_replayable_stream_fanout` instead of hidden materialization.
+- chaiNNer package defaults are discovered from the imported registry. User overrides persist in `VIS_CONFIG_DIR/chainner-settings.json`, are editable from the header settings dialog, and are deep-snapshotted at run start.
+- DINOv3 now returns a spatial `[Hf, Wf, C]` `FeatureArtifact`. Patch tokens are separated from CLS/register tokens using processed dimensions and model patch size. The full tensor stays on its backend device; WebSocket/API payloads contain only an opaque feature ID, shape/device/dtype/memory metadata, summary statistics, and inference metrics.
+- `Feature Normalize` supports `none` and channel-wise L2 normalization. `Feature Difference` supports raw, absolute, L2, and cosine modes after exact feature-space compatibility checks. Raw/L2/cosine keep `delta = current - reference`; absolute emits the absolute delta. Heatmaps are interpolated only while rendering.
+- Feature storage is bounded by `VIS_FEATURE_STORE_MAX_ENTRIES` and `VIS_FEATURE_STORE_MAX_BYTES`. Planner consumer counts drive reference release, and the run scope guarantees final cleanup. `GET /api/v1/features/stats` exposes counts and CPU/GPU bytes, never tensors.
+
 ## Repository tree
 
 ```text
@@ -73,11 +85,13 @@ vision-inference-studio/
 │   │   ├── api/               # versioned HTTP and WebSocket routes
 │   │   ├── assets/            # secure asset records/storage
 │   │   ├── chainner/          # dynamic registry/type/image/execution compatibility
+│   │   ├── features/          # feature schemas/store/ops/visualization public API
 │   │   ├── graph/             # schema, validation, planning, execution, persistence
 │   │   ├── models/            # manifest, registry, weights, lifecycle manager
 │   │   ├── nodes/             # definitions, registry, runtime values
 │   │   ├── renderers/         # detection, feature, tensor, registry
 │   │   ├── results/           # standardized Pydantic results/metrics
+│   │   ├── runtime/           # explicit values, streams, artifacts, execution scope
 │   │   ├── video/             # sequential reader and benchmark collector
 │   │   ├── config.py
 │   │   └── main.py
@@ -228,7 +242,7 @@ The shared type vocabulary also reserves frame, bboxes, mask, segmentation, clas
 | Segment Anything 3 | 3.0 | base | text-prompt concept segmentation, point/box segmentation | Ultralytics |
 | Generic ONNX | generic | custom | tensor | ONNX Runtime |
 
-DINOv3 returns a feature result and is never represented as an object detector. Grounding DINO turns text concepts into labeled boxes. SAM is promptable segmentation rather than text detection: use a foreground/background point or bounding box. Combining Grounding DINO boxes with SAM masks is a future graph-level composition; v0.4 does not pretend that SAM itself accepts text.
+DINOv3 returns a feature map and is never represented as an object detector. Grounding DINO turns text concepts into labeled boxes. SAM is promptable segmentation rather than text detection: use a foreground/background point or bounding box. Combining Grounding DINO boxes with SAM masks remains out of scope; v0.5 does not pretend that SAM itself accepts text.
 
 SAM (v1) initializes its matching Hugging Face architecture/processor and then applies the uploaded local checkpoint using data-only loading (`weights_only=True` or Safetensors). Uploaded checkpoints must match the selected size.
 
@@ -246,6 +260,11 @@ GET  /api/v1/nodes
 GET  /api/v1/models
 GET  /api/v1/models/loaded
 GET  /api/v1/devices
+GET  /api/v1/system/metrics
+GET  /api/v1/features/stats
+GET  /api/v1/chainner/report
+GET  /api/v1/chainner/settings
+PUT  /api/v1/chainner/settings
 GET  /api/v1/benchmarks
 GET  /api/v1/benchmarks/{run_id}
 GET  /api/v1/weights
@@ -302,13 +321,13 @@ PYTHONPATH=backend /home/avinash/venv/bin/pytest -q backend/tests
 cd frontend && npm run build
 ```
 
-The suite covers the node/model registries, family-specific prompt validation, Grounding DINO detection normalization, SAM mask-to-polygon conversion, segmentation rendering, typed valid and invalid connections, cycles and topological ordering, path-safe weight/asset registration, model caching/unload, image graph execution, video metadata, sequential read/seek, stride and timestamps, frame-result serialization, benchmark aggregation, model reuse, bounded previews, pause/resume/cancel, and renderer selection. GPU/model integration remains separate because it needs runtime-specific weights and drivers.
+The suite covers the v0.4 graph/video/model behavior plus immutable model identity, request isolation, inference serialization, execution-scope cleanup, explicit runtime values, metadata-driven ndarray conversion, settings persistence/snapshots, lazy single-pass streams, stream fan-out rejection, feature-store refcounts/capacity/run cleanup, feature-space matching, all four difference modes, identity/localized-change behavior, and non-square DINO patch reconstruction. GPU/model integration remains separate because it needs runtime-specific weights and drivers.
 
 ## Video runtime and benchmark behavior
 
 - `VideoReader` owns OpenCV open, sequential decode, seek, metadata, and close behavior. Frames are never accumulated in memory.
-- The executor owns stride scheduling and calls the existing frame-level `adapter.predict(image)` contract. Adapters contain no video loops.
-- The Model node loads or reuses one cached handle before frame iteration. Confidence can change between runs without checkpoint deserialization.
+- The executor owns stride scheduling and calls the frame-level request-aware adapter contract. Adapters contain no video loops.
+- The Model node loads or reuses one immutable-key cached handle before frame iteration. Confidence/prompts remain per-request and can change without checkpoint deserialization.
 - Warm-up frames are excluded from benchmark distributions. CUDA timing remains synchronized in the adapter.
 - Live preview uses ten rotating JPEG slots per run. WebSocket subscribers retain only the newest pending frame while lifecycle/control events remain lossless.
 - Pause is acknowledged at the next frame boundary. Resume continues with the existing reader position. Cancel closes the reader, persists the partial benchmark, and leaves the reusable model loaded.
@@ -325,6 +344,11 @@ The suite covers the node/model registries, family-specific prompt validation, G
 | YOLO real inference | **Passed on CUDA** using `best.pt` and the saved `wf_yoloacceptance` graph. It produced 4 detections on `cam04.jpg`; cold total was 683.1 ms with 87.8 MB allocated, 350 MB reserved, and 262.3 MB peak GPU memory. The prediction preview was visually checked. |
 | RF-DETR real inference | **Passed on CUDA** using the official legacy `rf-detr-large.pth` and saved `wf_rfdetracceptance` graph. It produced 1 detection at 0.489 confidence (COCO `train`, a false positive on this industrial scene; it was shown as `truck` until the rfdetr 1.6 COCO label shift was fixed in the adapter); cold total was 749.8 ms with 534.6 MB allocated, 820 MB reserved, and 682.9 MB peak GPU memory. The prediction preview was visually checked. |
 | DINOv3 real feature output | Not run; no compatible DINOv3 checkpoint was available |
+| DINOv3 feature unit acceptance | Passed with backend-device tensors, non-square `2 × 3 × 4` reconstruction, special-token exclusion, opaque results, feature compatibility, identity, and localized-change tests |
+| Cached-model concurrency | Passed: one load for concurrent same-key requests, independent prompt/confidence values, and maximum active inference of one with the default semaphore |
+| Lazy chaiNNer sequence | Passed using real imported Range → Enumerate → Sequence Length with 100,000 items; traced peak was 0.93 MB after startup and no sequence list was materialized |
+| Feature operations (synthetic CUDA) | Passed on RTX 4050 at `32 × 48 × 384` FP16 (1,179,648 bytes): warm median normalize 0.135 ms, cosine difference 0.388 ms; same-feature max distance `2.38e-7`; localized max `0.319` |
+| FeatureStore stress | Passed 50 put/release cycles; final entries, CPU bytes, and GPU bytes were all zero |
 | SAM prompt segmentation | **Passed on CUDA/FP16** through the API with the `facebook/sam-vit-base` safetensors checkpoint: box prompt → bus mask 1.00 (602 ms cold), point prompt → person mask 0.86 (144 ms). |
 | Grounding DINO (official) real inference | **Passed on CUDA/FP16** through the API with `groundingdino_swint_ogc.pth`: on Ultralytics' `bus.jpg`, "bus, person" gave bus 0.85 and all four people 0.63–0.83 in 534 ms (2.0 GB peak). A Swin-T checkpoint selected as `base` is rejected. |
 | SAM 2.1 real inference | **Passed on CUDA/FP16** through the API with Meta's `sam2.1_hiera_base_plus.pt`: box prompt → bus mask 0.98 (108 ms), point prompt → person mask 0.94 (80 ms), 2.5 GB peak. The same checkpoint selected as version 2.0 is rejected. |
@@ -334,7 +358,7 @@ The suite covers the node/model registries, family-specific prompt validation, G
 | Video controls | Browser-driven pause held the displayed frame stable, resume advanced from the preserved position, and cached-model stop runs reached `CANCELLED` for both families |
 | Long-run memory/retention | A 320-frame real 1080p clip processed 302 inferred frames (300 measured). RSS grew 14.6 MB after warm-up/model reuse, GPU allocation remained bounded, and only ten preview files were retained for the completed run |
 
-The current normal suite passes in `/home/avinash/venv` (`30 passed, 4 skipped`), and the React production build passes under Node 22. A real imported Resize operation and a Range → Enumerate → Accumulate generator/transformer/collector chain also pass through the compatibility executor. Dedicated real image adapter checks and browser-driven image/video CUDA runs from the prior milestone remain valid.
+The current normal suite passes in `/home/avinash/venv` (`46 passed, 5 optional real-model tests skipped`), and the React production build passes under Node 22. With the available local weights configured, the dedicated real CUDA integration set passes YOLO and RF-DETR image inference plus ten video frames for each family (`4 passed`). A real imported Range → Enumerate → Sequence Length generator/transformer/collector chain also passes through the lazy compatibility executor.
 
 With `VIS_TEST_VIDEO`, both checkpoint variables, CUDA, and a 100-frame target configured, the dedicated real-video integration module passes both families (`2 passed`), loading each checkpoint once and applying the same frame-level adapter contract.
 
@@ -347,6 +371,7 @@ With `VIS_TEST_VIDEO`, both checkpoint variables, CUDA, and a 100-frame target c
 - Generic ONNX v0.1 assumes a single NCHW image input and exposes the first output tensor.
 - The installed RF-DETR runtime recognizes the available large checkpoint as a legacy architecture and automatically selects its deprecated compatibility configuration; this is functional but emits an upstream warning.
 - DINOv3 Transformers model metadata may require initial network access unless already cached; the supplied local state dict is still explicitly applied.
+- A compatible DINOv3 checkpoint is not present in this workspace, so real-camera identity/change metrics and DINO GPU latency remain unmeasured. The artifact/token/operation path is covered with synthetic backend tensors; optional real tests should use `VIS_DINO_WEIGHTS`, `VIS_DINO_TEST_REFERENCE`, and `VIS_DINO_TEST_CURRENT` when a checkpoint is supplied.
 - SAM (v1) may need initial Hugging Face access for processor/config metadata, and Grounding DINO downloads its `bert-base-uncased` text encoder on first load, unless already cached. Only uploaded local model state is applied as the selected checkpoint.
 - Grounding DINO without its compiled CUDA ops uses the package's PyTorch deformable attention (same result, slower); install with a CUDA toolkit to build the kernel.
 - The prompt-model packages build from source and are not yet part of the packaged desktop runtime, which installs prebuilt wheels only.
@@ -358,8 +383,8 @@ With `VIS_TEST_VIDEO`, both checkpoint variables, CUDA, and a 100-frame target c
 
 ## Conclusion
 
-Vision Inference Studio v0.4 extends the same model-independent graph with prompt models and the actual local chaiNNer registration catalog. Mixed pipelines can now place imported in-memory preprocessing before the native universal Model node, while unavailable optional nodes remain diagnosable instead of disappearing. The header adds continuously refreshed CPU/RAM and GPU/VRAM/temperature rings.
+Vision Inference Studio v0.5 turns the v0.4 graph into a safer long-lived execution runtime. Model cache identity can no longer be overwritten by another request, chaiNNer resources now obey node/run lifetimes, streams stay lazy, and ndarray semantics come from port metadata. The feature path retains real DINO tensors behind bounded opaque references and supports continuous normalized delta/heatmap analysis without serializing the tensor or silently comparing incompatible feature spaces.
 
-The video claim is backed by actual 1920×1080 camera footage, real checkpoints, 100-frame browser-driven runs for each model, visible live predictions, frame-boundary pause/resume, clean cancellation, cached model reuse, percentile benchmark reports, and a separate 300-frame memory validation. Preview storage and subscriber backpressure are bounded rather than proportional to video duration.
+Acceptance is **PASS for the implemented v0.5 source milestone**: 46 tests pass, the production frontend builds, real YOLO/RF-DETR image and file-video CUDA regressions pass, the 100,000-item imported chaiNNer stream stays bounded, and synthetic CUDA feature identity/change/memory checks pass. Real DINO checkpoint/camera acceptance is the one hardware-artifact limitation and is explicitly not claimed.
 
-The real-hardware conclusion remains deliberately narrow. RF-DETR/YOLO image and file-video inference are verified on CUDA. Grounding DINO (official), SAM 2.1 and SAM 3 image inference are also verified on CUDA with their released checkpoints; SAM (v1) passes the same real-checkpoint check; DINOv3 remains implemented and unit-verified only, pending a compatible checkpoint. RTSP, Tailscale, remote Jetsons, GCP, annotation/export, training, multi-GPU scheduling, and distributed workers remain out of scope.
+RTSP, Tailscale, remote Jetsons, GCP, annotation/export, training, Mahalanobis analysis, clustering, thresholds, tracking, scheduling, multi-GPU coordination, and distributed workers remain intentionally out of scope.

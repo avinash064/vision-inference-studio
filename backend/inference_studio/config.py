@@ -36,6 +36,15 @@ class Settings(BaseModel):
     max_upload_bytes: int = 5 * 1024 * 1024 * 1024
     chainner_src_dir: Path | None = None
     reports_dir: Path | None = None
+    config_dir: Path | None = None
+    feature_store_max_entries: int = 64
+    feature_store_max_bytes: int = 2 * 1024**3
+    geometries_dir_override: Path | None = None
+
+    @property
+    def geometries_dir(self) -> Path:
+        """Frozen Mahalanobis geometry store (VIS_GEOMETRIES_DIR, default <data>/feature_geometries)."""
+        return self.geometries_dir_override or self.weights_dir.parent / "feature_geometries"
 
     @classmethod
     def load(cls) -> "Settings":
@@ -57,8 +66,12 @@ class Settings(BaseModel):
             max_upload_bytes=int(os.getenv("VIS_MAX_UPLOAD_BYTES", 5 * 1024**3)),
             chainner_src_dir=Path(chainner_value).expanduser().resolve() if chainner_value else (default_chainner.resolve() if default_chainner.is_dir() else None),
             reports_dir=Path(os.getenv("VIS_REPORTS_DIR", workspace_dir / "reports")).expanduser().resolve(),
+            config_dir=config_dir,
+            feature_store_max_entries=int(os.getenv("VIS_FEATURE_STORE_MAX_ENTRIES", "64")),
+            feature_store_max_bytes=int(os.getenv("VIS_FEATURE_STORE_MAX_BYTES", str(2 * 1024**3))),
+            geometries_dir_override=Path(os.getenv("VIS_GEOMETRIES_DIR", data_dir / "feature_geometries")).expanduser().resolve(),
         )
 
     def prepare(self) -> None:
-        for path in (self.workspace_dir / "assets", self.workspace_dir / "previews", self.weights_dir, self.workflows_dir, self.benchmarks_dir, self.reports_dir or self.workspace_dir / "reports"):
+        for path in (self.workspace_dir / "assets", self.workspace_dir / "previews", self.weights_dir, self.workflows_dir, self.benchmarks_dir, self.reports_dir or self.workspace_dir / "reports", self.geometries_dir):
             path.mkdir(parents=True, exist_ok=True)

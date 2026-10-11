@@ -23,9 +23,9 @@ def test_real_yolo_checkpoint_when_configured():
     assert image is not None
     adapter = YoloAdapter()
     config = ModelConfig(family="yolo", version="v11", size="custom", weight_id="integration", device=os.getenv("VIS_TEST_DEVICE", "cpu"), precision="fp16" if os.getenv("VIS_TEST_DEVICE", "cpu").startswith("cuda") else "fp32")
-    model = adapter.load(config, Path(weight))
+    model = adapter.load(config.model_key(), Path(weight))
     try:
-        result = adapter.predict(model, image)
+        result = adapter.predict(model, config.inference_request(), image)
         assert isinstance(result, DetectionResult)
         assert result.metrics.total_ms > 0
     finally:

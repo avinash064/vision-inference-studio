@@ -30,18 +30,18 @@ class VideoAdapter(ModelAdapter):
 
     def load(self, config, weight_path):
         self.loads += 1
-        return LoadedModel(handle={}, config=config, weight_path=weight_path)
+        return LoadedModel(handle={}, key=config, weight_path=weight_path)
 
-    def preprocess(self, model, input_data):
+    def preprocess(self, model, request, input_data):
         return input_data
 
-    def infer(self, model, tensor):
+    def infer(self, model, request, tensor):
         return tensor
 
-    def postprocess(self, model, output):
+    def postprocess(self, model, request, output):
         return DetectionResult()
 
-    def predict(self, model, image):
+    def predict(self, model, request, image):
         if self.delay:
             time.sleep(self.delay)
         self.predictions += 1

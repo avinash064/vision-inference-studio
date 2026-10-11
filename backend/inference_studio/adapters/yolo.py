@@ -5,27 +5,27 @@ import numpy as np
 
 from inference_studio.results import Detection, DetectionResult
 
-from .base import LoadedModel, ModelAdapter, ModelConfig
+from .base import InferenceRequest, LoadedModel, ModelAdapter, ModelKey
 
 
 class YoloAdapter(ModelAdapter):
     name = "yolo"
 
-    def load(self, config: ModelConfig, weight_path: Path) -> LoadedModel:
+    def load(self, key: ModelKey, weight_path: Path) -> LoadedModel:
         try:
             from ultralytics import YOLO
         except ImportError as exc:
             raise RuntimeError("YOLO runtime is not installed; install requirements-runtimes.txt") from exc
         model = YOLO(str(weight_path), task="detect")
-        return LoadedModel(handle=model, config=config, weight_path=weight_path)
+        return LoadedModel(handle=model, key=key, weight_path=weight_path)
 
-    def preprocess(self, model: LoadedModel, input_data: np.ndarray) -> np.ndarray:
+    def preprocess(self, model: LoadedModel, request: InferenceRequest, input_data: np.ndarray) -> np.ndarray:
         return input_data
 
-    def infer(self, model: LoadedModel, tensor: np.ndarray):
-        return model.handle.predict(source=tensor, conf=model.config.confidence, device=model.config.device, half=model.config.precision == "fp16", verbose=False)[0]
+    def infer(self, model: LoadedModel, request: InferenceRequest, tensor: np.ndarray):
+        return model.handle.predict(source=tensor, conf=request.confidence, device=model.key.device, half=model.key.precision == "fp16", verbose=False)[0]
 
-    def postprocess(self, model: LoadedModel, output) -> DetectionResult:
+    def postprocess(self, model: LoadedModel, request: InferenceRequest, output) -> DetectionResult:
         detections: list[Detection] = []
         names = output.names
         if output.boxes is not None:

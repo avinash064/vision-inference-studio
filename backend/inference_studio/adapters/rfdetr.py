@@ -6,30 +6,30 @@ import numpy as np
 
 from inference_studio.results import Detection, DetectionResult
 
-from .base import LoadedModel, ModelAdapter, ModelConfig
+from .base import InferenceRequest, LoadedModel, ModelAdapter, ModelKey
 
 
 class RfDetrAdapter(ModelAdapter):
     name = "rfdetr"
     _classes = {"nano": "RFDETRNano", "small": "RFDETRSmall", "medium": "RFDETRMedium", "base": "RFDETRBase", "large": "RFDETRLarge"}
 
-    def load(self, config: ModelConfig, weight_path: Path) -> LoadedModel:
+    def load(self, key: ModelKey, weight_path: Path) -> LoadedModel:
         try:
             import rfdetr
         except ImportError as exc:
             raise RuntimeError("RF-DETR runtime is not installed; install requirements-runtimes.txt") from exc
-        class_name = self._classes[config.size]
+        class_name = self._classes[key.size]
         model_class = getattr(rfdetr, class_name, None)
         if model_class is None:
             raise RuntimeError(f"Installed rfdetr does not expose {class_name}")
         # Supported RF-DETR releases accept model config through **kwargs. Keeping
         # this variation here prevents version-specific branches in the API/engine.
         try:
-            model = model_class(pretrain_weights=str(weight_path), device=config.device, amp=config.precision == "fp16")
+            model = model_class(pretrain_weights=str(weight_path), device=key.device, amp=key.precision == "fp16")
         except TypeError as exc:
             raise RuntimeError("Installed RF-DETR version does not accept local pretrain_weights/device configuration") from exc
         model.vis_coco_labels = self.coco_label_table(model)
-        return LoadedModel(handle=model, config=config, weight_path=weight_path)
+        return LoadedModel(handle=model, key=key, weight_path=weight_path)
 
     @staticmethod
     def coco_label_table(model) -> dict[int, str] | None:
@@ -45,13 +45,13 @@ class RfDetrAdapter(ModelAdapter):
             from rfdetr.util.coco_classes import COCO_CLASSES
         return {int(key): str(value) for key, value in dict(COCO_CLASSES).items()}
 
-    def preprocess(self, model: LoadedModel, input_data: np.ndarray) -> np.ndarray:
+    def preprocess(self, model: LoadedModel, request: InferenceRequest, input_data: np.ndarray) -> np.ndarray:
         return cv2.cvtColor(input_data, cv2.COLOR_BGR2RGB)
 
-    def infer(self, model: LoadedModel, tensor: np.ndarray):
-        return model.handle.predict(tensor, threshold=model.config.confidence, include_source_image=False)
+    def infer(self, model: LoadedModel, request: InferenceRequest, tensor: np.ndarray):
+        return model.handle.predict(tensor, threshold=request.confidence, include_source_image=False)
 
-    def postprocess(self, model: LoadedModel, prediction) -> DetectionResult:
+    def postprocess(self, model: LoadedModel, request: InferenceRequest, prediction) -> DetectionResult:
         xyxy = getattr(prediction, "xyxy", [])
         class_ids = getattr(prediction, "class_id", [])
         confidences = getattr(prediction, "confidence", [])

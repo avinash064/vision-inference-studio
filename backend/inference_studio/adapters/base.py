@@ -30,52 +30,84 @@ class ModelConfig(BaseModel):
     mask_threshold: float = Field(default=0.0, ge=-10, le=10)
     multimask: bool = False
 
+    def model_key(self) -> "ModelKey":
+        return ModelKey(**self.model_dump(include={"family", "version", "size", "weight_id", "device", "precision"}))
+
+    def inference_request(self) -> "InferenceRequest":
+        return InferenceRequest(**self.model_dump(include={"confidence", "text_prompt", "text_threshold", "prompt_mode", "point_prompt", "point_foreground", "box_prompt", "mask_threshold", "multimask"}))
+
+
+@dataclass(frozen=True)
+class ModelKey:
+    family: str
+    version: str
+    size: str
+    weight_id: str
+    device: str = "cpu"
+    precision: Literal["fp32", "fp16"] = "fp32"
+
+
+@dataclass(frozen=True)
+class InferenceRequest:
+    confidence: float = 0.25
+    text_prompt: str = ""
+    text_threshold: float = 0.25
+    prompt_mode: str = ""
+    point_prompt: str = ""
+    point_foreground: bool = True
+    box_prompt: str = ""
+    mask_threshold: float = 0.0
+    multimask: bool = False
+
 
 @dataclass
 class LoadedModel:
     handle: Any
-    config: ModelConfig
+    key: ModelKey
     weight_path: Path
+    checkpoint_sha256: str | None = None
 
 
 class ModelAdapter(ABC):
     name: str
+    max_concurrency: int = 1
 
     @abstractmethod
-    def load(self, config: ModelConfig, weight_path: Path) -> LoadedModel: ...
+    def load(self, key: ModelKey, weight_path: Path) -> LoadedModel: ...
 
     @abstractmethod
-    def preprocess(self, model: LoadedModel, input_data: np.ndarray) -> Any: ...
+    def preprocess(self, model: LoadedModel, request: InferenceRequest, input_data: np.ndarray) -> Any: ...
 
     @abstractmethod
-    def infer(self, model: LoadedModel, tensor: Any) -> Any: ...
+    def infer(self, model: LoadedModel, request: InferenceRequest, tensor: Any) -> Any: ...
 
     @abstractmethod
-    def postprocess(self, model: LoadedModel, output: Any) -> InferenceResult: ...
+    def postprocess(self, model: LoadedModel, request: InferenceRequest, output: Any) -> Any: ...
 
-    def predict(self, model: LoadedModel, input_data: np.ndarray) -> InferenceResult:
+    def predict(self, model: LoadedModel, request: InferenceRequest, input_data: np.ndarray) -> Any:
         cuda_device = None
         try:
             import torch
-            if model.config.device.startswith("cuda") and torch.cuda.is_available():
-                cuda_device = torch.device(model.config.device)
+            if model.key.device.startswith("cuda") and torch.cuda.is_available():
+                cuda_device = torch.device(model.key.device)
                 torch.cuda.synchronize(cuda_device)
                 torch.cuda.reset_peak_memory_stats(cuda_device)
         except (ImportError, RuntimeError):
             cuda_device = None
         started = self.timer()
         phase = perf_counter()
-        tensor = self.preprocess(model, input_data)
+        tensor = self.preprocess(model, request, input_data)
         preprocess_ms = (perf_counter() - phase) * 1000
         phase = perf_counter()
-        raw = self.infer(model, tensor)
+        raw = self.infer(model, request, tensor)
         if cuda_device is not None:
             torch.cuda.synchronize(cuda_device)
         inference_ms = (perf_counter() - phase) * 1000
         phase = perf_counter()
-        result = self.postprocess(model, raw)
+        result = self.postprocess(model, request, raw)
         postprocess_ms = (perf_counter() - phase) * 1000
-        result.metrics = self.metrics(started, inference_ms, preprocess_ms, postprocess_ms, cuda_device)
+        if hasattr(result, "metrics"):
+            result.metrics = self.metrics(started, inference_ms, preprocess_ms, postprocess_ms, cuda_device)
         return result
 
     def unload(self, model: LoadedModel) -> None:
@@ -88,11 +120,11 @@ class ModelAdapter(ABC):
             pass
 
     def metadata(self, model: LoadedModel) -> dict[str, Any]:
-        metadata: dict[str, Any] = {"adapter": self.name, "family": model.config.family, "version": model.config.version, "size": model.config.size, "device": model.config.device, "precision": model.config.precision, "weight": model.weight_path.name}
+        metadata: dict[str, Any] = {"adapter": self.name, "family": model.key.family, "version": model.key.version, "size": model.key.size, "device": model.key.device, "precision": model.key.precision, "weight": model.weight_path.name}
         try:
             import torch
-            if model.config.device.startswith("cuda") and torch.cuda.is_available():
-                device = torch.device(model.config.device)
+            if model.key.device.startswith("cuda") and torch.cuda.is_available():
+                device = torch.device(model.key.device)
                 metadata.update(device_name=torch.cuda.get_device_name(device), gpu_memory_mb=torch.cuda.memory_allocated(device) / 1024**2, gpu_reserved_mb=torch.cuda.memory_reserved(device) / 1024**2, gpu_peak_memory_mb=torch.cuda.max_memory_allocated(device) / 1024**2)
         except (ImportError, RuntimeError):
             pass

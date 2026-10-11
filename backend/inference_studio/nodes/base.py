@@ -28,6 +28,8 @@ class ConfigField(BaseModel):
     step: float | None = None
     placeholder: str | None = None
     condition: Any = None
+    # Options that depend on another field's value: {"field": "provider", "options": {value: [...]}}.
+    options_by: dict[str, Any] | None = None
     chainner_metadata: dict[str, Any] = Field(default_factory=dict)
 
 

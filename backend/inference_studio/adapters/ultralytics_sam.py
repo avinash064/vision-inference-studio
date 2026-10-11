@@ -17,25 +17,25 @@ import numpy as np
 
 from inference_studio.results import SegmentationMask, SegmentationResult
 
-from .base import LoadedModel, ModelAdapter, ModelConfig
+from .base import InferenceRequest, LoadedModel, ModelAdapter, ModelKey
 from .huggingface import parse_coordinates
 from .sam import SamAdapter
 
 
-def _overrides(config: ModelConfig, imgsz: int) -> dict[str, Any]:
+def _overrides(key: ModelKey, imgsz: int) -> dict[str, Any]:
     return {
         "task": "segment",
         "mode": "predict",
         "imgsz": imgsz,
-        "device": config.device,
-        "half": config.precision == "fp16" and config.device.startswith("cuda"),
-        "conf": config.confidence,
+        "device": key.device,
+        "half": key.precision == "fp16" and key.device.startswith("cuda"),
+        "conf": 0.25,
         "save": False,
         "verbose": False,
     }
 
 
-def _spatial_prompts(config: ModelConfig, width: int, height: int) -> dict[str, Any]:
+def _spatial_prompts(config: InferenceRequest, width: int, height: int) -> dict[str, Any]:
     if config.prompt_mode == "point":
         point = parse_coordinates(config.point_prompt, 2, "Point prompt")
         SamAdapter._check_bounds(point, width, height)
@@ -44,10 +44,10 @@ def _spatial_prompts(config: ModelConfig, width: int, height: int) -> dict[str, 
         box = parse_coordinates(config.box_prompt, 4, "Box prompt")
         SamAdapter._check_bounds(box, width, height, box=True)
         return {"bboxes": [box]}
-    raise ValueError(f"{config.family} requires a point or box prompt")
+    raise ValueError("SAM requires a point or box prompt")
 
 
-def to_segmentation(result: Any, config: ModelConfig, semantic: bool = False) -> SegmentationResult:
+def to_segmentation(result: Any, config: InferenceRequest, semantic: bool = False) -> SegmentationResult:
     """Convert an Ultralytics ``Results`` into the studio's JSON-safe segmentation result."""
 
     values: list[SegmentationMask] = []
@@ -92,7 +92,7 @@ class Sam2Adapter(ModelAdapter):
     def checkpoint_name(cls, version: str, size: str) -> str:
         return f"{cls._versions[version]}_{cls._sizes[size]}.pt"
 
-    def load(self, config: ModelConfig, weight_path: Path) -> LoadedModel:
+    def load(self, key: ModelKey, weight_path: Path) -> LoadedModel:
         try:
             from ultralytics.models.sam import SAM2Predictor
         except ImportError as exc:
@@ -102,33 +102,33 @@ class Sam2Adapter(ModelAdapter):
         # so expose the stored upload under its canonical name for the duration of the build.
         staging = Path(tempfile.mkdtemp(prefix="vis-sam2-"))
         try:
-            link = staging / self.checkpoint_name(config.version, config.size)
+            link = staging / self.checkpoint_name(key.version, key.size)
             link.symlink_to(weight_path.resolve())
-            predictor = SAM2Predictor(overrides={**_overrides(config, 1024), "model": str(link)})
+            predictor = SAM2Predictor(overrides={**_overrides(key, 1024), "model": str(link)})
             try:
                 predictor.setup_model(model=None, verbose=False)
             except RuntimeError as exc:  # strict state-dict load: wrong size or not a SAM 2 checkpoint
-                raise RuntimeError(f"Checkpoint does not match SAM {config.version} {config.size}") from exc
+                raise RuntimeError(f"Checkpoint does not match SAM {key.version} {key.size}") from exc
         finally:
             shutil.rmtree(staging, ignore_errors=True)
-        return LoadedModel(handle=Sam2Handle(predictor), config=config, weight_path=weight_path)
+        return LoadedModel(handle=Sam2Handle(predictor), key=key, weight_path=weight_path)
 
-    def preprocess(self, model: LoadedModel, input_data: np.ndarray) -> dict[str, Any]:
+    def preprocess(self, model: LoadedModel, request: InferenceRequest, input_data: np.ndarray) -> dict[str, Any]:
         height, width = input_data.shape[:2]
-        return {"image": input_data, "prompts": _spatial_prompts(model.config, width, height)}
+        return {"image": input_data, "prompts": _spatial_prompts(request, width, height)}
 
-    def infer(self, model: LoadedModel, tensor: dict[str, Any]):
+    def infer(self, model: LoadedModel, request: InferenceRequest, tensor: dict[str, Any]):
         with model.handle.lock:
             predictor = model.handle.predictor
-            predictor.args.conf = model.config.confidence
+            predictor.args.conf = request.confidence
             predictor.set_image(tensor["image"])
             try:
                 return predictor(**tensor["prompts"])[0]
             finally:
                 predictor.reset_image()
 
-    def postprocess(self, model: LoadedModel, output) -> SegmentationResult:
-        return to_segmentation(output, model.config)
+    def postprocess(self, model: LoadedModel, request: InferenceRequest, output) -> SegmentationResult:
+        return to_segmentation(output, request)
 
     def unload(self, model: LoadedModel) -> None:
         del model.handle.predictor
@@ -152,16 +152,13 @@ class Sam3Adapter(ModelAdapter):
     semantic_imgsz = 1008
     interactive_imgsz = 644
 
-    def load(self, config: ModelConfig, weight_path: Path) -> LoadedModel:
+    def load(self, key: ModelKey, weight_path: Path) -> LoadedModel:
         try:
             import ultralytics.models.sam  # noqa: F401
         except ImportError as exc:
             raise RuntimeError("SAM 3 requires the Ultralytics runtime") from exc
         handle = Sam3Handle(weight_path)
-        model = LoadedModel(handle=handle, config=config, weight_path=weight_path)
-        # Load the predictor for the configured prompt mode now; the other one loads on first use.
-        self._predictor(model, semantic=config.prompt_mode in ("", "text"))
-        return model
+        return LoadedModel(handle=handle, key=key, weight_path=weight_path)
 
     def _predictor(self, model: LoadedModel, semantic: bool):
         handle: Sam3Handle = model.handle
@@ -185,7 +182,7 @@ class Sam3Adapter(ModelAdapter):
             network = build_sam3_image_model(checkpoint) if semantic else build_interactive_sam3(checkpoint, compile=None)
         except (RuntimeError, KeyError) as exc:
             raise RuntimeError("Checkpoint is not a SAM 3 (sam3.pt) checkpoint") from exc
-        predictor = (SAM3SemanticPredictor if semantic else SAM3Predictor)(overrides={**_overrides(model.config, self.semantic_imgsz if semantic else self.interactive_imgsz), "model": checkpoint})
+        predictor = (SAM3SemanticPredictor if semantic else SAM3Predictor)(overrides={**_overrides(model.key, self.semantic_imgsz if semantic else self.interactive_imgsz), "model": checkpoint})
         predictor.setup_model(model=network, verbose=False)
         if semantic:
             handle.semantic = predictor
@@ -193,28 +190,28 @@ class Sam3Adapter(ModelAdapter):
             handle.interactive = predictor
         return predictor
 
-    def preprocess(self, model: LoadedModel, input_data: np.ndarray) -> dict[str, Any]:
-        if model.config.prompt_mode == "text":
-            phrases = [item.strip() for item in model.config.text_prompt.replace(";", ",").split(",") if item.strip()]
+    def preprocess(self, model: LoadedModel, request: InferenceRequest, input_data: np.ndarray) -> dict[str, Any]:
+        if request.prompt_mode == "text":
+            phrases = [item.strip() for item in request.text_prompt.replace(";", ",").split(",") if item.strip()]
             if not phrases:
                 raise ValueError("SAM 3 text mode requires at least one concept, e.g. 'wheel, rail'")
             return {"image": input_data, "semantic": True, "prompts": {"text": phrases}}
         height, width = input_data.shape[:2]
-        return {"image": input_data, "semantic": False, "prompts": _spatial_prompts(model.config, width, height)}
+        return {"image": input_data, "semantic": False, "prompts": _spatial_prompts(request, width, height)}
 
-    def infer(self, model: LoadedModel, tensor: dict[str, Any]):
+    def infer(self, model: LoadedModel, request: InferenceRequest, tensor: dict[str, Any]):
         with model.handle.lock:
             predictor = self._predictor(model, tensor["semantic"])
-            predictor.args.conf = model.config.confidence
+            predictor.args.conf = request.confidence
             predictor.set_image(tensor["image"])
             try:
                 return predictor(**tensor["prompts"])[0], tensor["semantic"]
             finally:
                 predictor.reset_image()
 
-    def postprocess(self, model: LoadedModel, output) -> SegmentationResult:
+    def postprocess(self, model: LoadedModel, request: InferenceRequest, output) -> SegmentationResult:
         result, semantic = output
-        return to_segmentation(result, model.config, semantic=semantic)
+        return to_segmentation(result, request, semantic=semantic)
 
     @staticmethod
     def _release_cuda() -> None:

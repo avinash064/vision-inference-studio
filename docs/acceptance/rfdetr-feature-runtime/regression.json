@@ -1,0 +1,135 @@
+{
+ "runs": [
+  {
+   "name": "YOLO image",
+   "state": "COMPLETED",
+   "errors": [],
+   "frames": 0,
+   "objects_per_frame": [],
+   "detections": 4,
+   "top": [
+    [
+     "MLP",
+     0.92
+    ],
+    [
+     "Color_PP",
+     0.43
+    ],
+    [
+     "Color_PP",
+     0.35
+    ],
+    [
+     "MLP",
+     0.26
+    ]
+   ],
+   "total_ms": 354.2
+  },
+  {
+   "name": "RF-DETR detector image (rf-detr-large.pth)",
+   "state": "COMPLETED",
+   "errors": [],
+   "frames": 0,
+   "objects_per_frame": [],
+   "detections": 5,
+   "top": [
+    [
+     "bus",
+     0.97
+    ],
+    [
+     "person",
+     0.94
+    ],
+    [
+     "person",
+     0.94
+    ],
+    [
+     "person",
+     0.93
+    ],
+    [
+     "person",
+     0.9
+    ]
+   ],
+   "total_ms": 615.2
+  },
+  {
+   "name": "chaiNNer invert -> YOLO",
+   "state": "COMPLETED",
+   "errors": [],
+   "frames": 0,
+   "objects_per_frame": [],
+   "detections": 1,
+   "top": [
+    [
+     "Film",
+     0.72
+    ]
+   ],
+   "total_ms": 40.0
+  },
+  {
+   "name": "YOLO video 10 frames",
+   "state": "COMPLETED",
+   "errors": [],
+   "frames": 10,
+   "objects_per_frame": [
+    2,
+    2,
+    2,
+    2,
+    3,
+    3,
+    2,
+    3,
+    3,
+    3
+   ],
+   "detections": 0,
+   "top": [],
+   "total_ms": 0
+  }
+ ],
+ "loaded": [
+  {
+   "model_id": "yolo:v11:custom:wgt_4167b4f27d1240c28c3472181abbb72d:cuda:0:fp16",
+   "state": "LOADED",
+   "adapter": "yolo",
+   "load_count": null
+  },
+  {
+   "model_id": "rfdetr:v1:large:wgt_rfdetrlargelegacy:cuda:0:fp16",
+   "state": "LOADED",
+   "adapter": "rfdetr",
+   "load_count": null
+  },
+  {
+   "model_id": "feature:rfdetr:v2.2:RFDETRLargeDeprecated:wgt_rfdetrlargelegacy:cuda:0:fp32",
+   "state": "LOADED",
+   "adapter": "rfdetr-v2.2",
+   "load_count": 1
+  },
+  {
+   "model_id": "feature:rfdetr:architecture-b:seglarge:wgt_25f75bfb824b441989bd35410b886a7b:cuda:0:fp32",
+   "state": "LOADED",
+   "adapter": "rfdetr-arch-b",
+   "load_count": 1
+  }
+ ],
+ "store": {
+  "entries": 0,
+  "bytes": 0,
+  "cpu_bytes": 0,
+  "gpu_bytes": 0,
+  "peak_entries": 4,
+  "peak_cpu_bytes": 0,
+  "peak_gpu_bytes": 39321600,
+  "max_entries": 64,
+  "max_bytes": 2147483648
+ }
+}

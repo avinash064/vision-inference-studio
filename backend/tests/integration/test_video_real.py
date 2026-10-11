@@ -26,12 +26,12 @@ def test_real_video_frames_use_one_loaded_model(family, weight_env, version, siz
     target_frames = int(os.getenv("VIS_TEST_VIDEO_FRAMES", "100"))
     adapter = AdapterRegistry().get(family)
     config = ModelConfig(family=family, version=version, size=size, weight_id="integration", device=device, precision="fp16" if device.startswith("cuda") else "fp32", confidence=float(os.getenv("VIS_TEST_CONFIDENCE", ".3")))
-    model = adapter.load(config, Path(weight_path))
+    model = adapter.load(config.model_key(), Path(weight_path))
     processed = 0
     try:
         with VideoReader(video_path) as reader:
             for packet in reader.frames():
-                result = adapter.predict(model, packet.image)
+                result = adapter.predict(model, config.inference_request(), packet.image)
                 assert isinstance(result, DetectionResult)
                 processed += 1
                 if processed >= target_frames:

@@ -24,15 +24,18 @@ export function PropertiesPanel() {
   const config = node.data.config
   const options = (field: ConfigField): FieldOption[] => {
     if (field.id === 'family') return Object.keys(models?.families || {}).map((value) => ({ label: value, value }))
-    const family = String(config.family || ''), version = String(config.version || '')
+    // Nodes without a family field (Feature Extract) map their provider to a weight family through metadata.
+    const providerFamilies = (definition.metadata?.provider_families || {}) as Record<string, string>
+    const family = String(config.family || providerFamilies[String(config.provider || '')] || ''), version = String(config.version || '')
     if (field.id === 'version') return Object.keys(models?.families[family]?.versions || {}).map((value) => ({ label: value, value }))
     if (field.id === 'size') return (models?.families[family]?.versions[version]?.sizes || []).map((value) => ({ label: value, value }))
     if (field.id === 'prompt_mode') return (models?.families[family]?.prompt_modes || []).map((value) => ({ label: value, value }))
     if (field.id === 'device') return devices.map((item) => ({ label: item.label, value: item.id }))
     if (field.id === 'weight_id') return weights.filter((item) => item.family === family).map((item) => ({ label: item.filename, value: item.weight_id }))
+    if (field.options_by) { const dependent = field.options_by.options[String(config[field.options_by.field] ?? '')]; if (dependent) return normalizedOptions(dependent) }
     return normalizedOptions(field.options)
   }
-  const update = (key: string, value: unknown) => { updateConfig(node.id, key, value); if (key === 'family') { const modes = models?.families[String(value)]?.prompt_modes || []; updateConfig(node.id, 'version', ''); updateConfig(node.id, 'size', ''); updateConfig(node.id, 'weight_id', ''); updateConfig(node.id, 'prompt_mode', modes[0] || ''); updateConfig(node.id, 'text_prompt', ''); updateConfig(node.id, 'point_prompt', ''); updateConfig(node.id, 'box_prompt', '') } if (key === 'version') updateConfig(node.id, 'size', '') }
+  const update = (key: string, value: unknown) => { updateConfig(node.id, key, value); if (key === 'family') { const modes = models?.families[String(value)]?.prompt_modes || []; updateConfig(node.id, 'version', ''); updateConfig(node.id, 'size', ''); updateConfig(node.id, 'weight_id', ''); updateConfig(node.id, 'prompt_mode', modes[0] || ''); updateConfig(node.id, 'text_prompt', ''); updateConfig(node.id, 'point_prompt', ''); updateConfig(node.id, 'box_prompt', '') } if (key === 'version') updateConfig(node.id, 'size', ''); for (const field of definition.config) { if (field.options_by?.field === key) { const choices = field.options_by.options[String(value)] || []; updateConfig(node.id, field.id, choices.length ? (typeof choices[0] === 'object' ? (choices[0] as FieldOption).value : choices[0]) : '') } } if (key === 'provider' && definition.metadata?.provider_families) updateConfig(node.id, 'weight_id', '') }
   const visible = (field: ConfigField) => {
     if (!conditionVisible(field.condition, config)) return false
     const modes = models?.families[String(config.family || '')]?.prompt_modes || []

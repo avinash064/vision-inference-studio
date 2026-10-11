@@ -9,7 +9,7 @@ import numpy as np
 
 from inference_studio.results import SegmentationMask, SegmentationResult
 
-from .base import LoadedModel, ModelAdapter, ModelConfig
+from .base import InferenceRequest, LoadedModel, ModelAdapter, ModelKey
 from .huggingface import apply_uploaded_state_dict, move_inputs, parse_coordinates, to_numpy
 
 
@@ -27,20 +27,20 @@ class SamAdapter(ModelAdapter):
         "vit-h": "facebook/sam-vit-huge",
     }
 
-    def load(self, config: ModelConfig, weight_path: Path) -> LoadedModel:
+    def load(self, key: ModelKey, weight_path: Path) -> LoadedModel:
         try:
             from transformers import SamModel, SamProcessor
         except ImportError as exc:
             raise RuntimeError("SAM requires the Transformers runtime") from exc
 
-        identifier = self._models[config.size]
+        identifier = self._models[key.size]
         processor = SamProcessor.from_pretrained(identifier)
         network = SamModel.from_pretrained(identifier)
         apply_uploaded_state_dict(network, weight_path)
-        network.to(config.device).eval()
-        if config.precision == "fp16":
+        network.to(key.device).eval()
+        if key.precision == "fp16":
             network.half()
-        return LoadedModel(handle=SamHandle(processor, network), config=config, weight_path=weight_path)
+        return LoadedModel(handle=SamHandle(processor, network), key=key, weight_path=weight_path)
 
     @staticmethod
     def _check_bounds(values: list[float], width: int, height: int, box: bool = False) -> None:
@@ -50,32 +50,32 @@ class SamAdapter(ModelAdapter):
         if box and (values[2] <= values[0] or values[3] <= values[1]):
             raise ValueError("SAM box prompt must have x2 > x1 and y2 > y1")
 
-    def preprocess(self, model: LoadedModel, input_data: np.ndarray) -> dict[str, Any]:
+    def preprocess(self, model: LoadedModel, request: InferenceRequest, input_data: np.ndarray) -> dict[str, Any]:
         rgb = cv2.cvtColor(input_data, cv2.COLOR_BGR2RGB)
         height, width = input_data.shape[:2]
         prompt_kwargs: dict[str, Any]
-        if model.config.prompt_mode == "point":
-            point = parse_coordinates(model.config.point_prompt, 2, "Point prompt")
+        if request.prompt_mode == "point":
+            point = parse_coordinates(request.point_prompt, 2, "Point prompt")
             self._check_bounds(point, width, height)
             prompt_kwargs = {
                 "input_points": [[point]],
-                "input_labels": [[1 if model.config.point_foreground else 0]],
+                "input_labels": [[1 if request.point_foreground else 0]],
             }
-        elif model.config.prompt_mode == "box":
-            box = parse_coordinates(model.config.box_prompt, 4, "Box prompt")
+        elif request.prompt_mode == "box":
+            box = parse_coordinates(request.box_prompt, 4, "Box prompt")
             self._check_bounds(box, width, height, box=True)
             prompt_kwargs = {"input_boxes": [[box]]}
         else:
             raise ValueError("SAM requires point or box prompt mode")
 
         encoded = model.handle.processor(images=rgb, return_tensors="pt", **prompt_kwargs)
-        return move_inputs(encoded, model.config.device, model.config.precision == "fp16")
+        return move_inputs(encoded, model.key.device, model.key.precision == "fp16")
 
-    def infer(self, model: LoadedModel, tensor: dict[str, Any]):
+    def infer(self, model: LoadedModel, request: InferenceRequest, tensor: dict[str, Any]):
         import torch
 
         with torch.inference_mode():
-            output = model.handle.network(**tensor, multimask_output=model.config.multimask)
+            output = model.handle.network(**tensor, multimask_output=request.multimask)
         return output, tensor
 
     @staticmethod
@@ -91,13 +91,13 @@ class SamAdapter(ModelAdapter):
                 polygons.append(points.astype(float).reshape(-1).tolist())
         return polygons
 
-    def postprocess(self, model: LoadedModel, output) -> SegmentationResult:
+    def postprocess(self, model: LoadedModel, request: InferenceRequest, output) -> SegmentationResult:
         raw, inputs = output
         processed = model.handle.processor.post_process_masks(
             raw.pred_masks,
             inputs["original_sizes"],
             inputs["reshaped_input_sizes"],
-            mask_threshold=model.config.mask_threshold,
+            mask_threshold=request.mask_threshold,
             binarize=True,
         )
         masks = np.asarray(to_numpy(processed[0]))
@@ -128,8 +128,8 @@ class SamAdapter(ModelAdapter):
                 )
             )
 
-        prompt = model.config.point_prompt if model.config.prompt_mode == "point" else model.config.box_prompt
-        return SegmentationResult(masks=values, prompt_mode=model.config.prompt_mode, prompt=prompt)
+        prompt = request.point_prompt if request.prompt_mode == "point" else request.box_prompt
+        return SegmentationResult(masks=values, prompt_mode=request.prompt_mode, prompt=prompt)
 
     def unload(self, model: LoadedModel) -> None:
         del model.handle.network

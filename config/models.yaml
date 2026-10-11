@@ -85,3 +85,23 @@ families:
     versions:
       generic:
         sizes: [custom]
+
+feature_extractors:
+  dinov3:
+    display_name: DINOv3
+    family: dinov3
+    version: official
+    variant: vit-b
+    stages: [last_hidden_state]
+  rfdetr-v2.2:
+    display_name: RF-DETR v2.2 Backbone
+    family: rfdetr
+    version: v2.2
+    variant: RFDETRLargeDeprecated
+    stages: [fine_80, coarse_20]
+  rfdetr-arch-b:
+    display_name: RF-DETR Architecture B
+    family: rfdetr
+    version: architecture-b
+    variant: seglarge
+    stages: [backbone_42]

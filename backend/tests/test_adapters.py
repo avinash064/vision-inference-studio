@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from inference_studio.adapters import AdapterRegistry, LoadedModel, ModelConfig
+from inference_studio.adapters import AdapterRegistry, InferenceRequest, LoadedModel, ModelConfig
 from inference_studio.adapters.rfdetr import RfDetrAdapter
 from inference_studio.adapters.grounding_dino import GroundingDinoAdapter
 from inference_studio.adapters.sam import SamAdapter, SamHandle
@@ -31,7 +31,7 @@ class FakeTensor:
 
 def loaded(family: str = "rfdetr") -> LoadedModel:
     config = ModelConfig(family=family, version="v1" if family == "rfdetr" else "v11", size="large" if family == "rfdetr" else "n", weight_id="test")
-    return LoadedModel(handle=SimpleNamespace(class_names={4: "fallback"}), config=config, weight_path=Path("test.pth"))
+    return LoadedModel(handle=SimpleNamespace(class_names={4: "fallback"}), key=config.model_key(), weight_path=Path("test.pth"))
 
 
 def test_adapter_registry_resolves_model_specific_code_once():
@@ -47,10 +47,10 @@ def test_adapter_registry_resolves_model_specific_code_once():
 def test_rfdetr_normalizes_supervision_detection_and_rgb_preprocessing():
     adapter = RfDetrAdapter()
     prediction = SimpleNamespace(xyxy=np.asarray([[10, 20, 80, 90]], dtype=float), class_id=np.asarray([4]), confidence=np.asarray([.87]), data={"class_name": np.asarray(["skip_car"])})
-    result = adapter.postprocess(loaded(), prediction)
+    result = adapter.postprocess(loaded(), InferenceRequest(), prediction)
     assert result == DetectionResult.model_validate({"result_type": "detections", "detections": [{"bbox": [10, 20, 80, 90], "class_id": 4, "label": "skip_car", "confidence": .87}]})
     bgr = np.asarray([[[1, 2, 3]]], dtype=np.uint8)
-    assert adapter.preprocess(loaded(), bgr).tolist() == [[[3, 2, 1]]]
+    assert adapter.preprocess(loaded(), InferenceRequest(), bgr).tolist() == [[[3, 2, 1]]]
 
 
 def test_rfdetr_coco_checkpoints_use_coco_category_ids():
@@ -60,7 +60,7 @@ def test_rfdetr_coco_checkpoints_use_coco_category_ids():
     prediction = SimpleNamespace(xyxy=np.asarray([[1, 2, 3, 4], [5, 6, 7, 8]], dtype=float), class_id=np.asarray([6, 1]), confidence=np.asarray([.97, .9]), data={"class_name": np.asarray(["train", "bicycle"])})
     model = loaded()
     model.handle = handle
-    assert [d.label for d in adapter.postprocess(model, prediction).detections] == ["bus", "person"]
+    assert [d.label for d in adapter.postprocess(model, InferenceRequest(), prediction).detections] == ["bus", "person"]
     # Fine-tuned checkpoints keep their own names.
     assert adapter.coco_label_table(SimpleNamespace(class_names=["skip_car"], model_config=SimpleNamespace(num_classes=1))) is None
 
@@ -68,7 +68,7 @@ def test_rfdetr_coco_checkpoints_use_coco_category_ids():
 def test_yolo_normalizes_ultralytics_detection():
     adapter = YoloAdapter()
     output = SimpleNamespace(names={2: "skip_car"}, boxes=SimpleNamespace(xyxy=FakeTensor([[1, 2, 30, 40]]), cls=FakeTensor([2]), conf=FakeTensor([.93])))
-    result = adapter.postprocess(loaded("yolo"), output)
+    result = adapter.postprocess(loaded("yolo"), InferenceRequest(), output)
     assert result.result_type == "detections"
     assert result.detections[0].model_dump() == {"bbox": [1.0, 2.0, 30.0, 40.0], "class_id": 2, "label": "skip_car", "confidence": .93}
 
@@ -93,12 +93,12 @@ def fake_ultralytics_result(names=None):
 
 def test_ultralytics_sam_results_convert_to_segments():
     point = ModelConfig(family="sam2", version="2.1", size="base-plus", weight_id="test", prompt_mode="point", point_prompt="12,10")
-    result = to_segmentation(fake_ultralytics_result(), point)
+    result = to_segmentation(fake_ultralytics_result(), point.inference_request())
     assert result.prompt == "12,10"
     assert [mask.label for mask in result.masks] == ["segment 1", "segment 2"]
     assert result.masks[0].bbox == [7.0, 5.0, 23.0, 19.0] and result.masks[0].area == 255 and result.masks[0].polygons
     text = ModelConfig(family="sam3", version="3.0", size="base", weight_id="test", prompt_mode="text", text_prompt="wheel, rail")
-    semantic = to_segmentation(fake_ultralytics_result(["wheel", "rail"]), text, semantic=True)  # SAM 3 reports names as a list
+    semantic = to_segmentation(fake_ultralytics_result(["wheel", "rail"]), text.inference_request(), semantic=True)  # SAM 3 reports names as a list
     assert [(mask.label, mask.class_id, mask.confidence) for mask in semantic.masks] == [("rail", 1, .81), ("wheel", 0, .42)]
 
 
@@ -106,19 +106,19 @@ def test_sam2_uses_canonical_checkpoint_names_and_spatial_prompts():
     assert Sam2Adapter.checkpoint_name("2.1", "base-plus") == "sam2.1_b.pt"
     assert Sam2Adapter.checkpoint_name("2.0", "tiny") == "sam2_t.pt"
     box = ModelConfig(family="sam2", version="2.1", size="large", weight_id="test", prompt_mode="box", box_prompt="1,2,20,30")
-    model = LoadedModel(handle=object(), config=box, weight_path=Path("test.pt"))
-    assert Sam2Adapter().preprocess(model, np.zeros((32, 32, 3), np.uint8))["prompts"] == {"bboxes": [[1.0, 2.0, 20.0, 30.0]]}
+    model = LoadedModel(handle=object(), key=box.model_key(), weight_path=Path("test.pt"))
+    assert Sam2Adapter().preprocess(model, box.inference_request(), np.zeros((32, 32, 3), np.uint8))["prompts"] == {"bboxes": [[1.0, 2.0, 20.0, 30.0]]}
     outside = box.model_copy(update={"box_prompt": "1,2,40,30"})
     with pytest.raises(ValueError):
-        Sam2Adapter().preprocess(LoadedModel(handle=object(), config=outside, weight_path=Path("test.pt")), np.zeros((32, 32, 3), np.uint8))
+        Sam2Adapter().preprocess(LoadedModel(handle=object(), key=outside.model_key(), weight_path=Path("test.pt")), outside.inference_request(), np.zeros((32, 32, 3), np.uint8))
 
 
 def test_sam3_routes_text_to_concepts_and_points_to_instances():
     text = ModelConfig(family="sam3", version="3.0", size="base", weight_id="test", prompt_mode="text", text_prompt="wheel; rail, ")
-    prepared = Sam3Adapter().preprocess(LoadedModel(handle=object(), config=text, weight_path=Path("sam3.pt")), np.zeros((8, 8, 3), np.uint8))
+    prepared = Sam3Adapter().preprocess(LoadedModel(handle=object(), key=text.model_key(), weight_path=Path("sam3.pt")), text.inference_request(), np.zeros((8, 8, 3), np.uint8))
     assert prepared["semantic"] and prepared["prompts"] == {"text": ["wheel", "rail"]}
     point = text.model_copy(update={"prompt_mode": "point", "point_prompt": "3,4", "point_foreground": False})
-    prepared = Sam3Adapter().preprocess(LoadedModel(handle=object(), config=point, weight_path=Path("sam3.pt")), np.zeros((8, 8, 3), np.uint8))
+    prepared = Sam3Adapter().preprocess(LoadedModel(handle=object(), key=point.model_key(), weight_path=Path("sam3.pt")), point.inference_request(), np.zeros((8, 8, 3), np.uint8))
     assert not prepared["semantic"] and prepared["prompts"] == {"points": [[3.0, 4.0]], "labels": [0]}
 
 
@@ -132,9 +132,9 @@ class FakeSamProcessor:
 def test_sam_converts_best_mask_to_json_safe_polygons():
     adapter = SamAdapter()
     config = ModelConfig(family="sam", version="v1", size="vit-b", weight_id="test", prompt_mode="point", point_prompt="12,10")
-    model = LoadedModel(handle=SamHandle(FakeSamProcessor(), object()), config=config, weight_path=Path("test.safetensors"))
+    model = LoadedModel(handle=SamHandle(FakeSamProcessor(), object()), key=config.model_key(), weight_path=Path("test.safetensors"))
     raw = SimpleNamespace(pred_masks=np.empty(0), iou_scores=np.asarray([[[.91]]]))
-    result = adapter.postprocess(model, (raw, {"original_sizes": [[32, 32]], "reshaped_input_sizes": [[32, 32]]}))
+    result = adapter.postprocess(model, config.inference_request(), (raw, {"original_sizes": [[32, 32]], "reshaped_input_sizes": [[32, 32]]}))
     assert result.result_type == "segmentation"
     assert result.prompt == "12,10"
     assert result.masks[0].area == 255

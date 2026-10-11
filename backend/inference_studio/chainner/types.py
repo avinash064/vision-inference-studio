@@ -24,14 +24,26 @@ class ChainnerTypeAdapter:
         "tensorrtengine": "tensorrt_engine",
         "model": "model",
         "sequence": "sequence",
+        "tensor": "tensor",
+        "matrix": "tensor",
     }
 
     @classmethod
     def adapt(cls, expression: Any, associated_type: Any = None) -> list[str]:
+        text = json.dumps(expression, default=str).lower().replace("_", "")
+        tokens = set(re.findall(r"[a-z][a-z0-9]*", text))
+        result: list[str] = []
+        for name, mapped in cls._names.items():
+            if name in tokens and mapped not in result:
+                result.append(mapped)
+        if result:
+            return result
         if associated_type is not None:
             associated = getattr(associated_type, "__name__", str(associated_type)).lower().replace("_", "")
-            if associated in {"ndarray", "image"}:
+            if associated == "image":
                 return ["image"]
+            if associated == "ndarray":
+                return ["tensor"]
             if associated in {"int", "float", "seed"}:
                 return ["number"]
             if associated in {"bool", "str", "path"}:
@@ -39,10 +51,4 @@ class ChainnerTypeAdapter:
             for name, mapped in cls._names.items():
                 if name in associated:
                     return [mapped]
-        text = json.dumps(expression, default=str).lower().replace("_", "")
-        tokens = set(re.findall(r"[a-z][a-z0-9]*", text))
-        result: list[str] = []
-        for name, mapped in cls._names.items():
-            if name in tokens and mapped not in result:
-                result.append(mapped)
-        return result or ["object"]
+        return ["object"]

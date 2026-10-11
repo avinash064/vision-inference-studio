@@ -1,0 +1,565 @@
+{
+  "geometries": [
+    {
+      "geometry_id": "geo_archb_b2_frozen",
+      "display_name": "Architecture B2 frozen MAH (COG V3.12 package)",
+      "feature_space": "rfdetr/architecture-b/seglarge/backbone_42 [42,42,256]",
+      "checkpoint_sha256": "f1edd91a3b41a0d140363a50d494323327b53ad05b3a66352cb3ecdf64332ccb",
+      "calibration_corpus": "B1 NLDiff CLEAR_TRAIN delta bank (Bt - registered Br); copied from COG_V3_12_DEPLOYABLE models/mah, the B2 frozen_mah.py cache",
+      "fitting_method": "LedoitWolf shrinkage covariance (B1 covariance.fit_shrinkage_covariance); mu = B1 residual_extractor.compute_mu_delta",
+      "tau_mah_preset": 589.3056640625
+    },
+    {
+      "geometry_id": "geo_archb_b2_recovered_v3",
+      "display_name": "Architecture B2 MAH, recovered (geometry gate v3)",
+      "feature_space": "rfdetr/architecture-b/seglarge/backbone_42 [42,42,256]",
+      "checkpoint_sha256": "f1edd91a3b41a0d140363a50d494323327b53ad05b3a66352cb3ecdf64332ccb",
+      "calibration_corpus": "549 CLEAR_TRAIN frames (recovered_cam04.mp4, ch4_113020_114530_raw.mp4), 968436 pooled tokens; clear_data_split.json",
+      "fitting_method": "LedoitWolf, shrinkage 4.4354e-05, effective rank 256, condition 9.16e5 (metadata.json)",
+      "tau_mah_preset": 589.3056640625
+    }
+  ],
+  "rfdetr-v2.2:fine_80": {
+    "valid": true,
+    "state": "COMPLETED",
+    "wall_s": 4.63,
+    "events": 40,
+    "errors": [],
+    "max_event_chars": 1744,
+    "nodes": {
+      "ref_feat": {
+        "feature_id": "feat_065b785388ae4dd8953b8c2bb0b19de1",
+        "shape": [
+          80,
+          80,
+          384
+        ],
+        "device": "cuda:0",
+        "dtype": "float32",
+        "summary": {
+          "min": -1.454474925994873,
+          "max": 10.325270652770996,
+          "mean": -0.006515475455671549,
+          "std": 0.6621302962303162
+        }
+      },
+      "cur_feat": {
+        "feature_id": "feat_f91af94ded2545a0a3907c41632e78c8",
+        "shape": [
+          80,
+          80,
+          384
+        ],
+        "device": "cuda:0",
+        "dtype": "float32",
+        "summary": {
+          "min": -1.5279024839401245,
+          "max": 10.238008499145508,
+          "mean": -0.006283970084041357,
+          "std": 0.6684920787811279
+        }
+      },
+      "diff_view": {
+        "shape": [
+          80,
+          80
+        ],
+        "statistics": {
+          "min": 0.469544917345047,
+          "mean": 2.7009572982788086,
+          "median": 2.021878957748413,
+          "p90": 5.662610054016113,
+          "p95": 7.0772552490234375,
+          "p99": 9.410319328308105,
+          "max": 11.836006164550781
+        }
+      },
+      "feat_view": {
+        "feature_id": "feat_f3703d20600a48b3b3c5d1cd34d8e384",
+        "shape": [
+          80,
+          80,
+          384
+        ],
+        "device": "cuda:0",
+        "dtype": "float32",
+        "summary": {
+          "min": -0.09290328621864319,
+          "max": 0.8136491775512695,
+          "mean": -0.0004841202753596008,
+          "std": 0.05102873966097832
+        }
+      },
+      "op_view": {
+        "shape": [
+          80,
+          80
+        ],
+        "statistics": {
+          "min": 0.0078125,
+          "mean": 0.08593831956386566,
+          "median": 0.0651041716337204,
+          "p90": 0.1822916716337204,
+          "p95": 0.2239583432674408,
+          "p99": 0.296875,
+          "max": 0.3697916865348816
+        }
+      }
+    },
+    "store_after_run": {
+      "entries": 0,
+      "bytes": 0,
+      "cpu_bytes": 0,
+      "gpu_bytes": 0,
+      "peak_entries": 4,
+      "peak_cpu_bytes": 0,
+      "peak_gpu_bytes": 39321600,
+      "max_entries": 64,
+      "max_bytes": 2147483648
+    }
+  },
+  "rfdetr-v2.2:coarse_20": {
+    "valid": true,
+    "state": "COMPLETED",
+    "wall_s": 0.21,
+    "events": 40,
+    "errors": [],
+    "max_event_chars": 1748,
+    "nodes": {
+      "ref_feat": {
+        "feature_id": "feat_9a353562f40743309817e49ab1448fb1",
+        "shape": [
+          20,
+          20,
+          384
+        ],
+        "device": "cuda:0",
+        "dtype": "float32",
+        "summary": {
+          "min": -1.1960326433181763,
+          "max": 5.94484281539917,
+          "mean": -0.014207608066499233,
+          "std": 0.5142831802368164
+        }
+      },
+      "cur_feat": {
+        "feature_id": "feat_d3351c753c6f47c88dac6d640076f8d1",
+        "shape": [
+          20,
+          20,
+          384
+        ],
+        "device": "cuda:0",
+        "dtype": "float32",
+        "summary": {
+          "min": -1.3096822500228882,
+          "max": 5.923224925994873,
+          "mean": -0.013623541221022606,
+          "std": 0.5252602100372314
+        }
+      },
+      "diff_view": {
+        "shape": [
+          20,
+          20
+        ],
+        "statistics": {
+          "min": 0.5063259601593018,
+          "mean": 2.630589008331299,
+          "median": 2.044879913330078,
+          "p90": 5.688466548919678,
+          "p95": 6.544328689575195,
+          "p99": 9.550759315490723,
+          "max": 10.405214309692383
+        }
+      },
+      "feat_view": {
+        "feature_id": "feat_4a15003f82f34934a2fd48e53ee9f391",
+        "shape": [
+          20,
+          20,
+          384
+        ],
+        "device": "cuda:0",
+        "dtype": "float32",
+        "summary": {
+          "min": -0.10551067441701889,
+          "max": 0.6764615178108215,
+          "mean": -0.0013640173710882664,
+          "std": 0.0510128028690815
+        }
+      },
+      "op_view": {
+        "shape": [
+          20,
+          20
+        ],
+        "statistics": {
+          "min": 0.0078125,
+          "mean": 0.07992188632488251,
+          "median": 0.0638020858168602,
+          "p90": 0.1692708432674408,
+          "p95": 0.1979166716337204,
+          "p99": 0.2500782012939453,
+          "max": 0.2864583432674408
+        }
+      }
+    },
+    "store_after_run": {
+      "entries": 0,
+      "bytes": 0,
+      "cpu_bytes": 0,
+      "gpu_bytes": 0,
+      "peak_entries": 4,
+      "peak_cpu_bytes": 0,
+      "peak_gpu_bytes": 39321600,
+      "max_entries": 64,
+      "max_bytes": 2147483648
+    }
+  },
+  "rfdetr-arch-b:backbone_42": {
+    "valid": true,
+    "state": "COMPLETED",
+    "wall_s": 0.5,
+    "events": 40,
+    "errors": [],
+    "max_event_chars": 1844,
+    "nodes": {
+      "ref_feat": {
+        "feature_id": "feat_3cfe26be8af748f7ae97510bfce011c4",
+        "shape": [
+          42,
+          42,
+          256
+        ],
+        "device": "cuda:0",
+        "dtype": "float32",
+        "summary": {
+          "min": -0.6590623259544373,
+          "max": 1.945101261138916,
+          "mean": -0.0005172468954697251,
+          "std": 0.182898610830307
+        }
+      },
+      "cur_feat": {
+        "feature_id": "feat_5148a59d3f4a429891a60b2377d8d5d5",
+        "shape": [
+          42,
+          42,
+          256
+        ],
+        "device": "cuda:0",
+        "dtype": "float32",
+        "summary": {
+          "min": -0.6223995685577393,
+          "max": 1.6399273872375488,
+          "mean": -0.0012861370341852307,
+          "std": 0.17633509635925293
+        }
+      },
+      "diff_view": {
+        "shape": [
+          42,
+          42
+        ],
+        "statistics": {
+          "min": 0.23982073366641998,
+          "mean": 0.9371733069419861,
+          "median": 0.6887969970703125,
+          "p90": 1.9862959384918213,
+          "p95": 2.6878888607025146,
+          "p99": 3.4091553688049316,
+          "max": 4.173115253448486
+        }
+      },
+      "feat_view": {
+        "feature_id": "feat_de5ff76745774f5680a56230912f63ea",
+        "shape": [
+          42,
+          42,
+          256
+        ],
+        "device": "cuda:0",
+        "dtype": "float32",
+        "summary": {
+          "min": -0.19861982762813568,
+          "max": 0.616553783416748,
+          "mean": -0.00047899133642204106,
+          "std": 0.06249816343188286
+        }
+      },
+      "op_view": {
+        "shape": [
+          42,
+          42
+        ],
+        "statistics": {
+          "min": 27.24831771850586,
+          "mean": 237.7279815673828,
+          "median": 116.29148864746094,
+          "p90": 707.6765747070312,
+          "p95": 990.854248046875,
+          "p99": 1434.2408447265625,
+          "max": 1884.72314453125
+        }
+      }
+    },
+    "store_after_run": {
+      "entries": 0,
+      "bytes": 0,
+      "cpu_bytes": 0,
+      "gpu_bytes": 0,
+      "peak_entries": 4,
+      "peak_cpu_bytes": 0,
+      "peak_gpu_bytes": 39321600,
+      "max_entries": 64,
+      "max_bytes": 2147483648
+    }
+  },
+  "identity_v22_xor": {
+    "valid": true,
+    "state": "COMPLETED",
+    "wall_s": 0.18,
+    "events": 40,
+    "errors": [],
+    "max_event_chars": 1742,
+    "nodes": {
+      "ref_feat": {
+        "feature_id": "feat_7aae0537dac8424e964bc09686ee132c",
+        "shape": [
+          80,
+          80,
+          384
+        ],
+        "device": "cuda:0",
+        "dtype": "float32",
+        "summary": {
+          "min": -1.454474925994873,
+          "max": 10.325270652770996,
+          "mean": -0.006515475455671549,
+          "std": 0.6621302962303162
+        }
+      },
+      "cur_feat": {
+        "feature_id": "feat_33b8bb7b1a614ac490c179bc21992fb1",
+        "shape": [
+          80,
+          80,
+          384
+        ],
+        "device": "cuda:0",
+        "dtype": "float32",
+        "summary": {
+          "min": -1.454474925994873,
+          "max": 10.325270652770996,
+          "mean": -0.006515475455671549,
+          "std": 0.6621302962303162
+        }
+      },
+      "diff_view": {
+        "shape": [
+          80,
+          80
+        ],
+        "statistics": {
+          "min": 0.0,
+          "mean": 0.0,
+          "median": 0.0,
+          "p90": 0.0,
+          "p95": 0.0,
+          "p99": 0.0,
+          "max": 0.0
+        }
+      },
+      "feat_view": {
+        "feature_id": "feat_390f19ab292747fdbad2a31ec0c9ad35",
+        "shape": [
+          80,
+          80,
+          384
+        ],
+        "device": "cuda:0",
+        "dtype": "float32",
+        "summary": {
+          "min": -0.0881030485033989,
+          "max": 0.8116037249565125,
+          "mean": -0.0005055744550190866,
+          "std": 0.0510285347700119
+        }
+      },
+      "op_view": {
+        "shape": [
+          80,
+          80
+        ],
+        "statistics": {
+          "min": 0.0,
+          "mean": 0.0,
+          "median": 0.0,
+          "p90": 0.0,
+          "p95": 0.0,
+          "p99": 0.0,
+          "max": 0.0
+        }
+      }
+    }
+  },
+  "identity_archb_mah": {
+    "valid": true,
+    "state": "COMPLETED",
+    "wall_s": 0.1,
+    "events": 40,
+    "errors": [],
+    "max_event_chars": 1842,
+    "nodes": {
+      "ref_feat": {
+        "feature_id": "feat_a25de2984f1a4f299a674d15ab32cc61",
+        "shape": [
+          42,
+          42,
+          256
+        ],
+        "device": "cuda:0",
+        "dtype": "float32",
+        "summary": {
+          "min": -0.6590623259544373,
+          "max": 1.945101261138916,
+          "mean": -0.0005172468954697251,
+          "std": 0.182898610830307
+        }
+      },
+      "cur_feat": {
+        "feature_id": "feat_7a82fa55019f4349b10b311343663064",
+        "shape": [
+          42,
+          42,
+          256
+        ],
+        "device": "cuda:0",
+        "dtype": "float32",
+        "summary": {
+          "min": -0.6590623259544373,
+          "max": 1.945101261138916,
+          "mean": -0.0005172468954697251,
+          "std": 0.182898610830307
+        }
+      },
+      "diff_view": {
+        "shape": [
+          42,
+          42
+        ],
+        "statistics": {
+          "min": 0.0,
+          "mean": 0.0,
+          "median": 0.0,
+          "p90": 0.0,
+          "p95": 0.0,
+          "p99": 0.0,
+          "max": 0.0
+        }
+      },
+      "feat_view": {
+        "feature_id": "feat_bf827241605b4b0aa5ffeef3c303f640",
+        "shape": [
+          42,
+          42,
+          256
+        ],
+        "device": "cuda:0",
+        "dtype": "float32",
+        "summary": {
+          "min": -0.20740506052970886,
+          "max": 0.6200035214424133,
+          "mean": -0.000220902482396923,
+          "std": 0.06249960884451866
+        }
+      },
+      "op_view": {
+        "shape": [
+          42,
+          42
+        ],
+        "statistics": {
+          "min": 12.672131538391113,
+          "mean": 12.67213249206543,
+          "median": 12.672131538391113,
+          "p90": 12.672131538391113,
+          "p95": 12.672131538391113,
+          "p99": 12.672131538391113,
+          "max": 12.672131538391113
+        }
+      }
+    }
+  },
+  "validator_rejects_xor_on_arch_b": {
+    "valid": false,
+    "issues": [
+      {
+        "code": "incompatible_feature_provider",
+        "message": "RF-DETR Activation XOR accepts only rfdetr-v2.2 features; got rfdetr-arch-b",
+        "node_id": "op",
+        "edge_id": null
+      }
+    ],
+    "order": [
+      "ref_img",
+      "cur_img",
+      "ref_feat",
+      "cur_feat",
+      "diff",
+      "norm",
+      "op",
+      "diff_view",
+      "feat_view",
+      "op_view"
+    ]
+  },
+  "loaded_feature_models": [
+    {
+      "model_id": "feature:rfdetr:v2.2:RFDETRLargeDeprecated:wgt_rfdetrlargelegacy:cuda:0:fp32",
+      "state": "LOADED",
+      "family": "rfdetr",
+      "adapter": "rfdetr-v2.2",
+      "device": "cuda:0",
+      "weight_id": "wgt_rfdetrlargelegacy",
+      "error": null,
+      "metadata": {
+        "feature_provider": "rfdetr-v2.2",
+        "version": "v2.2",
+        "variant": "RFDETRLargeDeprecated",
+        "precision": "fp32",
+        "load_count": 1,
+        "checkpoint_sha256": "86879a31a42ea4c091ee8d758654bf5c8c465f773f08e95a9143653f0f529cba"
+      }
+    },
+    {
+      "model_id": "feature:rfdetr:architecture-b:seglarge:wgt_25f75bfb824b441989bd35410b886a7b:cuda:0:fp32",
+      "state": "LOADED",
+      "family": "rfdetr",
+      "adapter": "rfdetr-arch-b",
+      "device": "cuda:0",
+      "weight_id": "wgt_25f75bfb824b441989bd35410b886a7b",
+      "error": null,
+      "metadata": {
+        "feature_provider": "rfdetr-arch-b",
+        "version": "architecture-b",
+        "variant": "seglarge",
+        "precision": "fp32",
+        "load_count": 1,
+        "checkpoint_sha256": "f1edd91a3b41a0d140363a50d494323327b53ad05b3a66352cb3ecdf64332ccb"
+      }
+    }
+  ],
+  "store_final": {
+    "entries": 0,
+    "bytes": 0,
+    "cpu_bytes": 0,
+    "gpu_bytes": 0,
+    "peak_entries": 4,
+    "peak_cpu_bytes": 0,
+    "peak_gpu_bytes": 39321600,
+    "max_entries": 64,
+    "max_bytes": 2147483648
+  }
+}

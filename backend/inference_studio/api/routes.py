@@ -18,7 +18,21 @@ def services(request: Request):
 
 @router.get("/nodes")
 def list_nodes(request: Request):
-    return [node.model_dump(mode="json") for node in services(request).nodes.list()]
+    nodes = [node.model_dump(mode="json") for node in services(request).nodes.list()]
+    geometries = services(request).geometries
+    if geometries is not None:
+        options = [{"label": f"{row['display_name']} · {row['checkpoint_sha256'][:12]}", "value": row["geometry_id"]} for row in geometries.list()]
+        for node in nodes:
+            for field in node.get("config", []):
+                if node.get("metadata", {}).get("options_source", {}).get(field["id"]) == "feature_geometries":
+                    field["options"] = options
+    return nodes
+
+
+@router.get("/features/geometries")
+def list_feature_geometries(request: Request):
+    geometries = services(request).geometries
+    return geometries.list() if geometries is not None else []
 
 
 @router.get("/chainner/report")
@@ -27,6 +41,20 @@ def chainner_report(request: Request):
     if adapter is None:
         raise HTTPException(404, "chaiNNer source is not configured or discovery failed")
     return adapter.report
+
+
+@router.get("/chainner/settings")
+def chainner_settings(request: Request):
+    store = services(request).chainner_settings
+    return {"values": store.snapshot(), "definitions": store.definitions()}
+
+
+@router.put("/chainner/settings")
+def update_chainner_settings(values: dict, request: Request):
+    try:
+        return services(request).chainner_settings.update(values)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
 
 
 @router.get("/models")
@@ -92,6 +120,11 @@ def system_metrics():
         except Exception:
             pass
     return result
+
+
+@router.get("/features/stats")
+def feature_stats(request: Request):
+    return services(request).engine.feature_store.stats()
 
 
 @router.get("/benchmarks")

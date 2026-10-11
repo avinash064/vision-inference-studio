@@ -1,0 +1,25 @@
+{
+  "version": "0.2",
+  "name": "DINOv3 feature difference",
+  "nodes": [
+    {"id": "reference_image", "type": "image_source", "position": {"x": 40, "y": 80}, "config": {"asset_id": "REPLACE_REFERENCE_ASSET_ID"}},
+    {"id": "target_image", "type": "image_source", "position": {"x": 40, "y": 360}, "config": {"asset_id": "REPLACE_TARGET_ASSET_ID"}},
+    {"id": "reference_dino", "type": "model", "position": {"x": 310, "y": 80}, "config": {"family": "dinov3", "version": "official", "size": "vit-b", "weight_id": "REPLACE_WEIGHT_ID", "device": "cuda:0", "precision": "fp16"}},
+    {"id": "target_dino", "type": "model", "position": {"x": 310, "y": 360}, "config": {"family": "dinov3", "version": "official", "size": "vit-b", "weight_id": "REPLACE_WEIGHT_ID", "device": "cuda:0", "precision": "fp16"}},
+    {"id": "reference_normalize", "type": "feature_normalize", "position": {"x": 600, "y": 80}, "config": {"mode": "l2_channel", "epsilon": 1e-8}},
+    {"id": "target_normalize", "type": "feature_normalize", "position": {"x": 600, "y": 360}, "config": {"mode": "l2_channel", "epsilon": 1e-8}},
+    {"id": "difference", "type": "feature_difference", "position": {"x": 900, "y": 220}, "config": {"mode": "cosine"}},
+    {"id": "heatmap_preview", "type": "heatmap_preview", "position": {"x": 1200, "y": 160}, "config": {}},
+    {"id": "delta_preview", "type": "feature_preview", "position": {"x": 1200, "y": 340}, "config": {"mode": "l2", "channel": 0}}
+  ],
+  "edges": [
+    {"id": "reference_image_model", "source": "reference_image", "source_handle": "image", "target": "reference_dino", "target_handle": "input"},
+    {"id": "target_image_model", "source": "target_image", "source_handle": "image", "target": "target_dino", "target_handle": "input"},
+    {"id": "reference_model_normalize", "source": "reference_dino", "source_handle": "output", "target": "reference_normalize", "target_handle": "feature"},
+    {"id": "target_model_normalize", "source": "target_dino", "source_handle": "output", "target": "target_normalize", "target_handle": "feature"},
+    {"id": "reference_difference", "source": "reference_normalize", "source_handle": "feature", "target": "difference", "target_handle": "reference"},
+    {"id": "target_difference", "source": "target_normalize", "source_handle": "feature", "target": "difference", "target_handle": "current"},
+    {"id": "difference_heatmap", "source": "difference", "source_handle": "heatmap", "target": "heatmap_preview", "target_handle": "heatmap"},
+    {"id": "difference_delta", "source": "difference", "source_handle": "delta", "target": "delta_preview", "target_handle": "result"}
+  ]
+}

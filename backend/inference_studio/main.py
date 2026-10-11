@@ -13,8 +13,9 @@ from fastapi.staticfiles import StaticFiles
 from inference_studio.adapters import AdapterRegistry
 from inference_studio.api import execution_socket, router
 from inference_studio.assets import AssetStore
-from inference_studio.chainner import ChainnerNodeExecutor, ChainnerRegistryAdapter
+from inference_studio.chainner import ChainnerNodeExecutor, ChainnerRegistryAdapter, ChainnerSettingsStore
 from inference_studio.config import Settings
+from inference_studio.features.geometry import MahalanobisGeometryStore
 from inference_studio.graph.executor import ExecutionEngine
 from inference_studio.graph.store import WorkflowStore
 from inference_studio.graph.validator import WorkflowValidator
@@ -35,6 +36,8 @@ class Services:
     engine: ExecutionEngine
     workflow_store: WorkflowStore
     chainner: ChainnerRegistryAdapter | None = None
+    chainner_settings: ChainnerSettingsStore | None = None
+    geometries: MahalanobisGeometryStore | None = None
 
 
 def watch_parent_process(parent_pid: int, interval: float = 2.0) -> threading.Thread:
@@ -87,10 +90,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     nodes = NodeRegistry(imported=imported_nodes)
     manager = ModelManager(models, weights, AdapterRegistry())
     validator = WorkflowValidator(nodes, models, weights, assets)
+    settings_path = (config.config_dir or config.models_file.parent) / "chainner-settings.json"
+    chainner_settings = ChainnerSettingsStore(settings_path, chainner.registry if chainner is not None else None)
     chainner_executor = ChainnerNodeExecutor(chainner, config.workspace_dir / "chainner-storage") if chainner is not None else None
-    engine = ExecutionEngine(validator, assets, manager, config.workspace_dir / "previews", config.benchmarks_dir, chainner=chainner_executor)
-    app = FastAPI(title="Vision Inference Studio", version="0.4.0")
-    app.state.services = Services(config, nodes, models, weights, assets, manager, validator, engine, WorkflowStore(config.workflows_dir), chainner)
+    geometries = MahalanobisGeometryStore(config.geometries_dir)
+    engine = ExecutionEngine(validator, assets, manager, config.workspace_dir / "previews", config.benchmarks_dir, chainner=chainner_executor, settings_snapshot=chainner_settings.snapshot, feature_store_max_entries=config.feature_store_max_entries, feature_store_max_bytes=config.feature_store_max_bytes, geometries=geometries)
+    app = FastAPI(title="Vision Inference Studio", version="0.5.0")
+    app.state.services = Services(config, nodes, models, weights, assets, manager, validator, engine, WorkflowStore(config.workflows_dir), chainner, chainner_settings, geometries)
     app.add_middleware(CORSMiddleware, allow_origins=["null", "http://localhost:5173", "http://127.0.0.1:5173", "http://localhost:5174", "http://127.0.0.1:5174"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
     app.add_middleware(DesktopSessionMiddleware)
     app.include_router(router)
@@ -98,7 +104,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.get("/health")
     def health():
-        return {"status": "ok", "version": "0.4.0"}
+        return {"status": "ok", "version": "0.5.0"}
+
+    async def release_models():
+        await manager.unload_all()
+
+    app.add_event_handler("shutdown", release_models)
 
     @app.websocket("/api/v1/executions/{run_id}")
     async def websocket_route(websocket: WebSocket, run_id: str):

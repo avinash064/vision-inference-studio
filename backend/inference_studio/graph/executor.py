@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 from time import perf_counter
-from typing import Any
+from typing import Any, Callable
 
 import cv2
 
@@ -17,12 +17,27 @@ from inference_studio.chainner import ChainnerImageAdapter, ChainnerNodeExecutor
 from inference_studio.models import ModelManager
 from inference_studio.nodes.runtime import ImageValue, ModelOutput, VideoModelStream, VideoValue
 from inference_studio.renderers import RendererRegistry
-from inference_studio.results import VideoFrameResult
+from inference_studio.results import FeatureResult, VideoFrameResult
+from inference_studio.runtime import ExecutionScope, FeatureArtifact, FeatureStore, FeatureValue, HeatmapValue
+from inference_studio.features.ops import (
+    activation_xor, difference,
+    mahalanobis_difference, normalize,
+)
+from inference_studio.features.visualization import feature_visual as feature_heatmap, render_heatmap
 from inference_studio.video import VideoMetricsCollector, VideoReader
 
 from .schema import Workflow
+from .planner import ExecutionPlan, build_execution_plan
 from .validator import WorkflowValidator
 
+
+
+def _synced_now(artifact: Any) -> float:
+    """perf_counter() after the artifact's CUDA stream drains, so feature-op timings are real, not queue time."""
+    if str(getattr(artifact.metadata, "device", "")).startswith("cuda"):
+        import torch
+        torch.cuda.synchronize(torch.device(artifact.metadata.device))
+    return perf_counter()
 
 class RunState(str, Enum):
     QUEUED = "QUEUED"
@@ -51,19 +66,24 @@ class Execution:
     pause_gate: asyncio.Event = field(default_factory=asyncio.Event)
     stop_requested: bool = False
     pause_requested: bool = False
+    scope: ExecutionScope | None = None
+    plan: ExecutionPlan | None = None
 
     def __post_init__(self) -> None:
         self.pause_gate.set()
 
 
 class ExecutionEngine:
-    def __init__(self, validator: WorkflowValidator, assets: AssetStore, manager: ModelManager, preview_dir: Path, benchmark_dir: Path | None = None, preview_retention: int = 10, chainner: ChainnerNodeExecutor | None = None) -> None:
+    def __init__(self, validator: WorkflowValidator, assets: AssetStore, manager: ModelManager, preview_dir: Path, benchmark_dir: Path | None = None, preview_retention: int = 10, chainner: ChainnerNodeExecutor | None = None, settings_snapshot: Callable[[], dict[str, Any]] | None = None, feature_store_max_entries: int = 64, feature_store_max_bytes: int = 2 * 1024**3, geometries: Any = None) -> None:
         self.validator, self.assets, self.manager = validator, assets, manager
         self.preview_dir = preview_dir
         self.benchmark_dir = benchmark_dir or preview_dir.parent / "benchmarks"
         self.preview_retention = max(1, preview_retention)
         self.renderers = RendererRegistry()
+        self.feature_store = FeatureStore(feature_store_max_entries, feature_store_max_bytes)
+        self.geometries = geometries
         self.chainner = chainner
+        self.settings_snapshot = settings_snapshot or (lambda: {})
         self.preview_dir.mkdir(parents=True, exist_ok=True)
         self.benchmark_dir.mkdir(parents=True, exist_ok=True)
         self.executions: dict[str, Execution] = {}
@@ -72,9 +92,11 @@ class ExecutionEngine:
         validation = self.validator.validate(workflow)
         if not validation.valid:
             raise ValueError("; ".join(issue.message for issue in validation.issues))
-        execution = Execution(run_id=f"run_{uuid.uuid4().hex}", workflow=workflow)
+        run_id = f"run_{uuid.uuid4().hex}"
+        plan = build_execution_plan(workflow, self.validator.nodes)
+        execution = Execution(run_id=run_id, workflow=workflow, scope=ExecutionScope(run_id, self.feature_store, self.settings_snapshot()), plan=plan)
         self.executions[execution.run_id] = execution
-        asyncio.create_task(self._execute(execution, validation.order))
+        asyncio.create_task(self._execute(execution, plan.order))
         return execution
 
     async def publish(self, execution: Execution, event: dict[str, Any]) -> None:
@@ -187,7 +209,14 @@ class ExecutionEngine:
                 state = "loading" if node.type == "model" else "running"
                 await self.publish(execution, {"type": "node_state", "event": "node_started", "node_id": node_id, "state": state})
                 incoming = {edge.target_handle: self._edge_value(values[edge.source], edge.source_handle) for edge in execution.workflow.edges if edge.target == node_id}
-                values[node_id] = await self._run_node(execution, node, incoming)
+                try:
+                    values[node_id] = await self._run_node(execution, node, incoming)
+                finally:
+                    for value in incoming.values():
+                        if isinstance(value, FeatureValue):
+                            self.feature_store.release(value.feature_id)
+                    if execution.scope is not None:
+                        await execution.scope.close_node(node_id)
                 await self.publish(execution, {"type": "node_state", "event": "node_completed", "node_id": node_id, "state": "success", "duration_ms": (perf_counter() - node_started) * 1000})
             execution.state = RunState.COMPLETED
             await self.publish(execution, {"type": "run_state", "event": "workflow_completed", "state": execution.state})
@@ -199,6 +228,12 @@ class ExecutionEngine:
             if current_node_id is not None:
                 await self.publish(execution, {"type": "node_state", "event": "node_failed", "node_id": current_node_id, "state": "error", "error": str(exc)})
             await self.publish(execution, {"type": "run_state", "event": "workflow_failed", "state": execution.state, "error": str(exc)})
+        finally:
+            if execution.scope is not None:
+                try:
+                    await execution.scope.close()
+                except Exception as exc:
+                    await self.publish(execution, {"type": "cleanup_error", "event": "cleanup_failed", "error": str(exc)})
 
     @staticmethod
     def _edge_value(value: Any, source_handle: str) -> Any:
@@ -239,6 +274,78 @@ class ExecutionEngine:
             if self.chainner is None:
                 raise RuntimeError("chaiNNer integration is not configured")
             return await self.chainner.execute(node.type, node.config, inputs, execution, node.id, self.publish)
+        if node.type == "feature_extract":
+            value: ImageValue = inputs["image"]
+            provider = str(node.config["provider"])
+            weight_id = str(node.config["weight_id"])
+            device = str(node.config.get("device", "cpu"))
+            precision = str(node.config.get("precision", "fp32"))
+            stage = str(node.config["stage"])
+            reused = self.manager.feature_load_count(provider, weight_id, device, precision) > 0
+            artifact = await self.manager.extract_feature(
+                provider, weight_id, ChainnerImageAdapter.to_vision(value.image),
+                stage, device, precision,
+            )
+            count = execution.plan.consumer_count(node.id, "feature_map") if execution.plan else 1
+            store_started = perf_counter()
+            feature_value = self.feature_store.put(artifact, execution.run_id, count)
+            store_ms = (perf_counter() - store_started) * 1000
+            public = FeatureResult(
+                shape=list(artifact.metadata.shape), feature_id=feature_value.feature_id,
+                dtype=artifact.metadata.dtype, device=artifact.metadata.device,
+                memory_bytes=artifact.metadata.memory_bytes, metadata=artifact.metadata.public(),
+                summary=artifact.summary, metrics=artifact.metrics,
+            )
+            await self.publish(execution, {
+                "type": "inference_result", "event": "feature_extracted", "node_id": node.id,
+                "provider": provider, "stage": stage, "model_reused": reused,
+                "feature_store_ms": store_ms, "result": public.model_dump(mode="json"),
+            })
+            return feature_value
+        if node.type == "feature_normalize":
+            value: FeatureValue = inputs["feature"]
+            started = perf_counter()
+            artifact = normalize(self.feature_store.get(value.feature_id), float(node.config.get("epsilon", 1e-8)), str(node.config.get("mode", "l2_channel")))
+            compute_ms = (perf_counter() - started) * 1000
+            count = execution.plan.consumer_count(node.id, "feature") if execution.plan else 1
+            feature_value = self.feature_store.put(artifact, execution.run_id, count)
+            await self.publish(execution, {"type": "feature_metrics", "event": "feature_normalized", "node_id": node.id, "compute_ms": compute_ms, "memory_bytes": artifact.metadata.memory_bytes})
+            return feature_value
+        if node.type == "feature_difference":
+            reference, target = self.feature_store.get(inputs["reference"].feature_id), self.feature_store.get(inputs["current"].feature_id)
+            started = _synced_now(reference)
+            artifact, heatmap = difference(reference, target, str(node.config.get("mode", "l2")))
+            compute_ms = (_synced_now(reference) - started) * 1000
+            count = execution.plan.consumer_count(node.id, "delta") if execution.plan else 1
+            feature_value = self.feature_store.put(artifact, execution.run_id, count)
+            await self.publish(execution, {"type": "feature_metrics", "event": "feature_difference_computed", "node_id": node.id, "compute_ms": compute_ms, "memory_bytes": artifact.metadata.memory_bytes, "statistics": heatmap.statistics})
+            return ChainnerOutputs({"delta": feature_value, "heatmap": heatmap})
+        if node.type == "rfdetr_activation_xor":
+            reference = self.feature_store.get(inputs["reference"].feature_id)
+            current = self.feature_store.get(inputs["current"].feature_id)
+            started = _synced_now(reference)
+            heatmap = activation_xor(reference, current, float(node.config.get("percentile", 90)))
+            await self.publish(execution, {
+                "type": "feature_metrics", "event": "activation_xor_computed",
+                "node_id": node.id, "xor_ms": (_synced_now(reference) - started) * 1000,
+                "statistics": heatmap.statistics,
+            })
+            return heatmap
+        if node.type == "mahalanobis_difference":
+            reference = self.feature_store.get(inputs["reference"].feature_id)
+            current = self.feature_store.get(inputs["current"].feature_id)
+            if self.geometries is None:
+                raise RuntimeError("Mahalanobis geometry store is not configured")
+            geometry = await asyncio.to_thread(self.geometries.get, str(node.config["geometry_id"]))
+            started = _synced_now(reference)
+            heatmap = mahalanobis_difference(reference, current, geometry)
+            await self.publish(execution, {
+                "type": "feature_metrics", "event": "mahalanobis_computed",
+                "node_id": node.id, "mahalanobis_ms": (_synced_now(reference) - started) * 1000,
+                "geometry_id": str(node.config["geometry_id"]),
+                "statistics": heatmap.statistics,
+            })
+            return heatmap
         if node.type == "model":
             config = ModelConfig.model_validate(node.config)
             value = inputs["input"]
@@ -251,6 +358,12 @@ class ExecutionEngine:
             await self.publish(execution, {"type": "node_state", "event": "node_started", "node_id": node.id, "state": "running"})
             image = ChainnerImageAdapter.to_vision(value.image)
             result = await self.manager.predict(config, image)
+            if isinstance(result, FeatureArtifact):
+                count = execution.plan.consumer_count(node.id, "output") if execution.plan else 1
+                feature_value = self.feature_store.put(result, execution.run_id, count)
+                public = FeatureResult(shape=list(result.metadata.shape), feature_id=feature_value.feature_id, dtype=result.metadata.dtype, device=result.metadata.device, memory_bytes=result.metadata.memory_bytes, metadata=result.metadata.public(), summary=result.summary, metrics=result.metrics)
+                await self.publish(execution, {"type": "inference_result", "event": "inference_completed", "node_id": node.id, "model": config.model_dump(mode="json"), "result": public.model_dump(mode="json")})
+                return feature_value
             await self.publish(execution, {"type": "inference_result", "event": "inference_completed", "node_id": node.id, "model": config.model_dump(mode="json"), "result": result.model_dump(mode="json")})
             return ModelOutput(image=image, result=result, config=config)
         if node.type == "video_preview":
@@ -261,6 +374,23 @@ class ExecutionEngine:
             prediction_url = await self._save_preview(execution.run_id, node.id, image, label="prediction")
             await self.publish(execution, {"type": "preview", "event": "preview_ready", "node_id": node.id, "url": prediction_url, "original_url": original_url, "prediction_url": prediction_url})
             return {"original_url": original_url, "prediction_url": prediction_url}
+        if node.type == "feature_preview":
+            value: FeatureValue = inputs["result"]
+            artifact = self.feature_store.get(value.feature_id)
+            started = perf_counter()
+            values = feature_heatmap(artifact, str(node.config.get("mode", "l2")), int(node.config.get("channel", 0)))
+            canvas = render_heatmap(values, artifact.metadata.source_width, artifact.metadata.source_height)
+            prediction_url = await self._save_preview(execution.run_id, node.id, canvas, label="prediction")
+            result = FeatureResult(shape=list(artifact.metadata.shape), feature_id=value.feature_id, dtype=artifact.metadata.dtype, device=artifact.metadata.device, memory_bytes=artifact.metadata.memory_bytes, metadata=artifact.metadata.public(), summary=artifact.summary)
+            await self.publish(execution, {"type": "preview", "event": "preview_ready", "node_id": node.id, "url": prediction_url, "prediction_url": prediction_url, "result": result.model_dump(mode="json"), "render_ms": (perf_counter() - started) * 1000})
+            return {"prediction_url": prediction_url}
+        if node.type == "heatmap_preview":
+            value: HeatmapValue = inputs["heatmap"]
+            started = perf_counter()
+            canvas = render_heatmap(value.values, value.source_width, value.source_height)
+            prediction_url = await self._save_preview(execution.run_id, node.id, canvas, label="prediction")
+            await self.publish(execution, {"type": "preview", "event": "preview_ready", "node_id": node.id, "url": prediction_url, "prediction_url": prediction_url, "result": {"result_type": "heatmap", "statistics": value.statistics, "shape": [value.grid_height, value.grid_width]}, "render_ms": (perf_counter() - started) * 1000})
+            return {"prediction_url": prediction_url}
         output = inputs["result"]
         expected = {"detection_preview": "detections", "segmentation_preview": "segmentation", "feature_preview": ("feature_map", "embedding"), "tensor_preview": "tensor"}[node.type]
         if output.result.result_type not in ((expected,) if isinstance(expected, str) else expected):

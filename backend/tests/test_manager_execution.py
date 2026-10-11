@@ -21,18 +21,18 @@ class FakeAdapter(ModelAdapter):
 
     def load(self, config, weight_path):
         self.loads += 1
-        return LoadedModel(handle={"ready": True}, config=config, weight_path=weight_path)
+        return LoadedModel(handle={"ready": True}, key=config, weight_path=weight_path)
 
-    def preprocess(self, model, input_data):
+    def preprocess(self, model, request, input_data):
         return input_data
 
-    def infer(self, model, tensor):
+    def infer(self, model, request, tensor):
         return tensor
 
-    def postprocess(self, model, output):
+    def postprocess(self, model, request, output):
         return DetectionResult()
 
-    def predict(self, model, image):
+    def predict(self, model, request, image):
         return DetectionResult(detections=[Detection(bbox=[4, 5, 30, 35], class_id=0, label="object", confidence=.91)], metrics=InferenceMetrics(inference_ms=1.2, total_ms=1.4))
 
     def unload(self, model):
@@ -57,7 +57,7 @@ async def test_model_manager_caches_and_unloads(model_registry, stores, register
     changed_threshold = config.model_copy(update={"confidence": .8})
     second = await manager.load(changed_threshold)
     assert first is second and fake.loads == 1
-    assert second.config.confidence == .8
+    assert second.key == config.model_key()
     await manager.unload(config)
     assert fake.unloads == 1 and manager.status()[0].state == "UNLOADED"
 

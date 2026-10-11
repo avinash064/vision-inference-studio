@@ -1,7 +1,7 @@
 {
   "name": "vision-inference-studio",
   "productName": "Vision Inference Studio",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Local visual workflow studio for real image and video inference",
   "author": "Vision Inference Studio",
   "license": "UNLICENSED",

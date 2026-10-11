@@ -24,9 +24,9 @@ def test_real_rfdetr_checkpoint_when_configured():
     device = os.getenv("VIS_TEST_DEVICE", "cpu")
     adapter = RfDetrAdapter()
     config = ModelConfig(family="rfdetr", version="v1", size=os.getenv("VIS_RFDETR_SIZE", "large"), weight_id="integration", device=device, precision="fp16" if device.startswith("cuda") else "fp32", confidence=float(os.getenv("VIS_TEST_CONFIDENCE", ".3")))
-    model = adapter.load(config, Path(weight))
+    model = adapter.load(config.model_key(), Path(weight))
     try:
-        result = adapter.predict(model, image)
+        result = adapter.predict(model, config.inference_request(), image)
         assert isinstance(result, DetectionResult)
         assert result.metrics.total_ms > 0
         if device.startswith("cuda"):

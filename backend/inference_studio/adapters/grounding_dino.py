@@ -16,7 +16,7 @@ import numpy as np
 
 from inference_studio.results import Detection, DetectionResult
 
-from .base import LoadedModel, ModelAdapter, ModelConfig
+from .base import InferenceRequest, LoadedModel, ModelAdapter, ModelKey
 
 
 @dataclass
@@ -95,7 +95,7 @@ class GroundingDinoAdapter(ModelAdapter):
             raise ValueError("Grounding DINO requires a text prompt")
         return " . ".join(phrases) + " ."
 
-    def load(self, config: ModelConfig, weight_path: Path) -> LoadedModel:
+    def load(self, key: ModelKey, weight_path: Path) -> LoadedModel:
         try:
             import groundingdino
             import groundingdino.datasets.transforms as T
@@ -107,43 +107,43 @@ class GroundingDinoAdapter(ModelAdapter):
             raise RuntimeError("Grounding DINO requires the official package: pip install git+https://github.com/IDEA-Research/GroundingDINO.git") from exc
 
         _patch_runtime()
-        args = SLConfig.fromfile(os.path.join(os.path.dirname(groundingdino.__file__), "config", self._configs[config.size]))
-        args.device = config.device
+        args = SLConfig.fromfile(os.path.join(os.path.dirname(groundingdino.__file__), "config", self._configs[key.size]))
+        args.device = key.device
         network = build_model(args)
         checkpoint = torch.load(weight_path, map_location="cpu", weights_only=True)
         state = clean_state_dict(checkpoint.get("model", checkpoint) if isinstance(checkpoint, dict) else checkpoint)
         try:
             incompatible = network.load_state_dict(state, strict=False)
         except RuntimeError as exc:  # tensor shape mismatch: a Swin-B checkpoint for Swin-T or vice versa
-            raise RuntimeError(f"Checkpoint does not match Grounding DINO {config.size} ({self._configs[config.size].removesuffix('.py')})") from exc
+            raise RuntimeError(f"Checkpoint does not match Grounding DINO {key.size} ({self._configs[key.size].removesuffix('.py')})") from exc
         # Released checkpoints also carry the training-only denoising label embedding, and BERT's
         # position_ids buffer is non-persistent in newer Transformers; anything else means a wrong size.
         missing = [key for key in incompatible.missing_keys if not key.endswith("position_ids")]
         unexpected = [key for key in incompatible.unexpected_keys if key != "label_enc.weight" and not key.endswith("position_ids")]
         if missing or unexpected:
             raise RuntimeError(
-                f"Checkpoint does not match Grounding DINO {config.size}: "
+                f"Checkpoint does not match Grounding DINO {key.size}: "
                 f"{len(missing)} missing and {len(unexpected)} unexpected weights"
             )
-        network.to(config.device).eval()
+        network.to(key.device).eval()
         transform = T.Compose([T.RandomResize([800], max_size=1333), T.ToTensor(), T.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])])
-        return LoadedModel(handle=GroundingDinoHandle(network, transform), config=config, weight_path=weight_path)
+        return LoadedModel(handle=GroundingDinoHandle(network, transform), key=key, weight_path=weight_path)
 
-    def preprocess(self, model: LoadedModel, input_data: np.ndarray) -> dict[str, Any]:
+    def preprocess(self, model: LoadedModel, request: InferenceRequest, input_data: np.ndarray) -> dict[str, Any]:
         from PIL import Image
 
         rgb = Image.fromarray(cv2.cvtColor(input_data, cv2.COLOR_BGR2RGB))
         image, _ = model.handle.transform(rgb, None)
         return {
-            "image": image.to(model.config.device),
-            "caption": self.normalize_prompt(model.config.text_prompt),
+            "image": image.to(model.key.device),
+            "caption": self.normalize_prompt(request.text_prompt),
             "size": (int(input_data.shape[0]), int(input_data.shape[1])),
         }
 
-    def infer(self, model: LoadedModel, tensor: dict[str, Any]):
+    def infer(self, model: LoadedModel, request: InferenceRequest, tensor: dict[str, Any]):
         import torch
 
-        half = model.config.precision == "fp16" and model.config.device.startswith("cuda")
+        half = model.key.precision == "fp16" and model.key.device.startswith("cuda")
         with torch.inference_mode(), torch.autocast("cuda", dtype=torch.float16, enabled=half):
             output = model.handle.network(tensor["image"][None], captions=[tensor["caption"]])
         return output["pred_logits"].float().sigmoid()[0], output["pred_boxes"].float()[0], tensor["caption"], tensor["size"]
@@ -158,16 +158,16 @@ class GroundingDinoAdapter(ModelAdapter):
             detections.append(Detection(bbox=[float(x1), float(y1), float(x2), float(y2)], class_id=index, label=label, confidence=float(np.clip(score, 0, 1))))
         return detections
 
-    def postprocess(self, model: LoadedModel, output) -> DetectionResult:
+    def postprocess(self, model: LoadedModel, request: InferenceRequest, output) -> DetectionResult:
         from groundingdino.util.utils import get_phrases_from_posmap
 
         logits, boxes, caption, (height, width) = output
-        keep = logits.max(dim=1)[0] > model.config.confidence
+        keep = logits.max(dim=1)[0] > request.confidence
         logits, boxes = logits[keep], boxes[keep]
         tokenizer = model.handle.network.tokenizer
         tokenized = tokenizer(caption)
         phrases = [
-            get_phrases_from_posmap(row > model.config.text_threshold, tokenized, tokenizer).replace(".", "").strip()
+            get_phrases_from_posmap(row > request.text_threshold, tokenized, tokenizer).replace(".", "").strip()
             for row in logits
         ]
         scores = logits.max(dim=1)[0].cpu().numpy()

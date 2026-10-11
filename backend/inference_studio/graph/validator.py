@@ -7,7 +7,7 @@ from inference_studio.models.weights import WeightError, WeightStore
 from inference_studio.nodes import NodeRegistry
 from inference_studio.adapters.huggingface import parse_coordinates
 
-from .planner import CycleError, topological_sort
+from .planner import CycleError, build_execution_plan, topological_sort
 from .schema import ValidationIssue, ValidationResult, Workflow
 
 
@@ -75,7 +75,50 @@ class WorkflowValidator:
         except CycleError as exc:
             issues.append(ValidationIssue(code="cycle", message=str(exc)))
             order = []
+        if order:
+            plan = build_execution_plan(workflow, self.nodes)
+            for (source_id, source_handle), count in plan.consumers.items():
+                if source_id in plan.stream_nodes and count > 1:
+                    issues.append(ValidationIssue(code="non_replayable_stream_fanout", message=f"Stream output {source_handle} has {count} consumers; insert a collector/materialization node", node_id=source_id))
+        self._validate_feature_providers(workflow, node_map, issues)
         return ValidationResult(valid=not issues, issues=issues, order=order)
+
+    # Feature operations that only exist for one feature representation.
+    _REQUIRED_PROVIDER = {"rfdetr_activation_xor": "rfdetr-v2.2", "mahalanobis_difference": "rfdetr-arch-b"}
+
+    def _feature_providers(self, node_id: str, workflow: Workflow, node_map, seen: set[str]) -> set[str]:
+        """Providers of the Feature Extract nodes feeding ``node_id`` (through normalize/difference nodes)."""
+        if node_id in seen:
+            return set()
+        seen.add(node_id)
+        node = node_map.get(node_id)
+        if node is None:
+            return set()
+        if node.type == "feature_extract":
+            return {str(node.config.get("provider", ""))}
+        providers: set[str] = set()
+        for edge in workflow.edges:
+            if edge.target == node_id:
+                providers |= self._feature_providers(edge.source, workflow, node_map, seen)
+        return providers
+
+    def _validate_feature_providers(self, workflow: Workflow, node_map, issues: list[ValidationIssue]) -> None:
+        for node in workflow.nodes:
+            required = self._REQUIRED_PROVIDER.get(node.type)
+            if required is None:
+                continue
+            providers = self._feature_providers(node.id, workflow, node_map, set()) - {required}
+            if providers:
+                definition = self.nodes.get(node.type)
+                issues.append(ValidationIssue(
+                    code="incompatible_feature_provider",
+                    message=f"{definition.label} accepts only {required} features; got {', '.join(sorted(providers))}",
+                    node_id=node.id,
+                ))
+            if node.type == "mahalanobis_difference" and node.config.get("geometry_id") not in (None, ""):
+                from inference_studio.features.geometry import GEOMETRY_ID
+                if not GEOMETRY_ID.fullmatch(str(node.config["geometry_id"])):
+                    issues.append(ValidationIssue(code="invalid_geometry", message="Invalid frozen geometry id", node_id=node.id))
 
     def _validate_special(self, node, issues: list[ValidationIssue]) -> None:
         if node.type in {"image_source", "video_source"} and node.config.get("asset_id"):
@@ -106,6 +149,24 @@ class WorkflowValidator:
                             raise ValueError("Box prompt must have x2 > x1 and y2 > y1")
             except (ValueError, ModelRegistryError, WeightError) as exc:
                 issues.append(ValidationIssue(code="invalid_model", message=str(exc), node_id=node.id))
+        if node.type == "feature_extract" and all(node.config.get(key) not in (None, "") for key in ("provider", "weight_id", "stage")):
+            try:
+                provider = str(node.config["provider"])
+                try:
+                    definition = self.models.manifest.feature_extractors[provider]
+                except KeyError as exc:
+                    raise ValueError(f"Unknown feature provider: {provider}") from exc
+                stage = str(node.config["stage"])
+                if stage not in definition.stages:
+                    raise ValueError(
+                        f"{definition.display_name} does not expose {stage}; "
+                        f"choose one of {', '.join(definition.stages)}"
+                    )
+                self.weights.get(str(node.config["weight_id"]), definition.family)
+                if node.config.get("precision", "fp32") == "fp16" and node.config.get("device", "cpu") == "cpu":
+                    raise ValueError("fp16 feature extraction requires a CUDA device")
+            except (ValueError, WeightError) as exc:
+                issues.append(ValidationIssue(code="invalid_feature_extractor", message=str(exc), node_id=node.id))
 
     def _output_types(self, node, declared, workflow, node_map, visiting: set[str]):
         if node.type != "model":

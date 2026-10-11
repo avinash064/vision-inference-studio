@@ -1,0 +1,561 @@
+{
+  "device": "NVIDIA GeForce RTX 4050 Laptop GPU",
+  "torch": "2.5.1+cu121",
+  "precision": "fp32",
+  "inputs": {
+    "source_shape": [
+      1080,
+      1920,
+      3
+    ],
+    "pair": "cam04_44m_acceptance.mp4 frames 0 and 100 (fixed camera, not registered)",
+    "localized_patch_px": {
+      "y": [
+        360,
+        540
+      ],
+      "x": [
+        960,
+        1200
+      ]
+    }
+  },
+  "rfdetr-v2.2:fine_80": {
+    "feature_shape": [
+      80,
+      80,
+      384
+    ],
+    "dtype": "torch.float32",
+    "device": "cuda:0",
+    "feature_MB": 9.375,
+    "store_bytes_incl_shared": 9830400,
+    "checkpoint_sha256": "86879a31a42ea4c091ee8d758654bf5c8c465f773f08e95a9143653f0f529cba",
+    "signature": {
+      "extractor_family": "rfdetr",
+      "extractor_version": "v2.2",
+      "extractor_variant": "RFDETRLargeDeprecated",
+      "checkpoint_sha256": "86879a31a42ea4c091ee8d758654bf5c8c465f773f08e95a9143653f0f529cba",
+      "feature_stage": "fine_80",
+      "tensor_layout": "HWC",
+      "spatial_height": 80,
+      "spatial_width": 80,
+      "channels": 384,
+      "input_height": 560,
+      "input_width": 560,
+      "stride": 7.0,
+      "patch_size": null,
+      "preprocessing_signature": "rfdetr-v22-560-rgb01-imagenet",
+      "normalization": "imagenet"
+    },
+    "tap": "RFDETRLargeDeprecated.model.model.backbone forward hook (vendored v2.2 runtime), level selected by shape",
+    "levels": [
+      {
+        "level_index": 0,
+        "shape": [
+          80,
+          80
+        ],
+        "channels": 384,
+        "stride_y": 7.0,
+        "stride_x": 7.0,
+        "duplicate_shape_tensors_seen": 2,
+        "role": "finest_rescue"
+      },
+      {
+        "level_index": 1,
+        "shape": [
+          20,
+          20
+        ],
+        "channels": 384,
+        "stride_y": 28.0,
+        "stride_x": 28.0,
+        "duplicate_shape_tensors_seen": 2,
+        "role": "primary"
+      }
+    ],
+    "timing_ms": {
+      "feature_preprocess_ms": 3.71,
+      "feature_forward_ms": 70.72,
+      "feature_extract_ms": 74.43,
+      "feature_store_ms": 0.071,
+      "delta_ms": 0.639,
+      "identity_delta_ms": 83.05,
+      "preview_ms": 11.89,
+      "normalize_ms": 0.425,
+      "xor_ms": 14.31
+    },
+    "load_count": 1,
+    "identity": {
+      "l2": {
+        "min": 0.0,
+        "mean": 0.0,
+        "median": 0.0,
+        "p90": 0.0,
+        "p95": 0.0,
+        "p99": 0.0,
+        "max": 0.0
+      },
+      "cosine": {
+        "min": -0.0,
+        "mean": 0.0,
+        "median": 0.0,
+        "p90": 0.0,
+        "p95": 0.0,
+        "p99": 0.0,
+        "max": 0.0
+      },
+      "raw_delta_max_abs": 0.0,
+      "raw_delta_norm": 0.0,
+      "activation_xor": {
+        "min": 0.0,
+        "mean": 0.0,
+        "median": 0.0,
+        "p90": 0.0,
+        "p95": 0.0,
+        "p99": 0.0,
+        "max": 0.0
+      }
+    },
+    "localized": {
+      "l2": {
+        "min": 0.036964,
+        "mean": 0.462972,
+        "median": 0.220749,
+        "p90": 0.795941,
+        "p95": 1.64921,
+        "p99": 5.134682,
+        "max": 10.328438,
+        "changed_mean": 5.2831926345825195,
+        "unchanged_mean": 0.35517194867134094,
+        "ratio": 14.875027449651036,
+        "changed_tokens": 140
+      },
+      "activation_xor": {
+        "min": 0.0,
+        "mean": 0.014552,
+        "median": 0.007812,
+        "p90": 0.028646,
+        "p95": 0.052083,
+        "p99": 0.15625,
+        "max": 0.333333,
+        "changed_mean": 0.1617373675107956,
+        "unchanged_mean": 0.011259901337325573,
+        "ratio": 14.364000094268155,
+        "changed_tokens": 140
+      }
+    },
+    "real_pair": {
+      "l2": {
+        "min": 0.473335,
+        "mean": 2.698722,
+        "median": 1.995401,
+        "p90": 5.674499,
+        "p95": 7.10947,
+        "p99": 9.469083,
+        "max": 12.003722
+      },
+      "cosine": {
+        "min": 0.000657,
+        "mean": 0.031239,
+        "median": 0.011787,
+        "p90": 0.090665,
+        "p95": 0.141349,
+        "p99": 0.240082,
+        "max": 0.38155
+      },
+      "activation_xor": {
+        "min": 0.005208,
+        "mean": 0.085826,
+        "median": 0.065104,
+        "p90": 0.182292,
+        "p95": 0.226562,
+        "p99": 0.299479,
+        "max": 0.367188
+      }
+    },
+    "normalize_unit_norm_max_err": 1.7881393432617188e-07
+  },
+  "rfdetr-v2.2:coarse_20": {
+    "feature_shape": [
+      20,
+      20,
+      384
+    ],
+    "dtype": "torch.float32",
+    "device": "cuda:0",
+    "feature_MB": 0.5859375,
+    "store_bytes_incl_shared": 614400,
+    "checkpoint_sha256": "86879a31a42ea4c091ee8d758654bf5c8c465f773f08e95a9143653f0f529cba",
+    "signature": {
+      "extractor_family": "rfdetr",
+      "extractor_version": "v2.2",
+      "extractor_variant": "RFDETRLargeDeprecated",
+      "checkpoint_sha256": "86879a31a42ea4c091ee8d758654bf5c8c465f773f08e95a9143653f0f529cba",
+      "feature_stage": "coarse_20",
+      "tensor_layout": "HWC",
+      "spatial_height": 20,
+      "spatial_width": 20,
+      "channels": 384,
+      "input_height": 560,
+      "input_width": 560,
+      "stride": 28.0,
+      "patch_size": null,
+      "preprocessing_signature": "rfdetr-v22-560-rgb01-imagenet",
+      "normalization": "imagenet"
+    },
+    "tap": "RFDETRLargeDeprecated.model.model.backbone forward hook (vendored v2.2 runtime), level selected by shape",
+    "levels": [
+      {
+        "level_index": 0,
+        "shape": [
+          80,
+          80
+        ],
+        "channels": 384,
+        "stride_y": 7.0,
+        "stride_x": 7.0,
+        "duplicate_shape_tensors_seen": 2,
+        "role": "finest_rescue"
+      },
+      {
+        "level_index": 1,
+        "shape": [
+          20,
+          20
+        ],
+        "channels": 384,
+        "stride_y": 28.0,
+        "stride_x": 28.0,
+        "duplicate_shape_tensors_seen": 2,
+        "role": "primary"
+      }
+    ],
+    "timing_ms": {
+      "feature_preprocess_ms": 4.02,
+      "feature_forward_ms": 63.25,
+      "feature_extract_ms": 67.27,
+      "feature_store_ms": 0.067,
+      "delta_ms": 0.35,
+      "identity_delta_ms": 12.48,
+      "preview_ms": 9.7,
+      "normalize_ms": 0.37,
+      "xor_ms": 0.719
+    },
+    "load_count": 1,
+    "identity": {
+      "l2": {
+        "min": 0.0,
+        "mean": 0.0,
+        "median": 0.0,
+        "p90": 0.0,
+        "p95": 0.0,
+        "p99": 0.0,
+        "max": 0.0
+      },
+      "cosine": {
+        "min": -0.0,
+        "mean": 0.0,
+        "median": 0.0,
+        "p90": 0.0,
+        "p95": 0.0,
+        "p99": 0.0,
+        "max": 0.0
+      },
+      "raw_delta_max_abs": 0.0,
+      "raw_delta_norm": 0.0,
+      "activation_xor": {
+        "min": 0.0,
+        "mean": 0.0,
+        "median": 0.0,
+        "p90": 0.0,
+        "p95": 0.0,
+        "p99": 0.0,
+        "max": 0.0
+      }
+    },
+    "localized": {
+      "l2": {
+        "min": 0.054741,
+        "mean": 0.567094,
+        "median": 0.300287,
+        "p90": 1.284455,
+        "p95": 2.043957,
+        "p99": 4.191881,
+        "max": 6.07127,
+        "changed_mean": 4.03395938873291,
+        "unchanged_mean": 0.4598713517189026,
+        "ratio": 8.771929988540311,
+        "changed_tokens": 12
+      },
+      "activation_xor": {
+        "min": 0.0,
+        "mean": 0.017376,
+        "median": 0.010417,
+        "p90": 0.036719,
+        "p95": 0.059896,
+        "p99": 0.117266,
+        "max": 0.145833,
+        "changed_mean": 0.1119791716337204,
+        "unchanged_mean": 0.014450440183281898,
+        "ratio": 7.749182220168615,
+        "changed_tokens": 12
+      }
+    },
+    "real_pair": {
+      "l2": {
+        "min": 0.488361,
+        "mean": 2.652089,
+        "median": 2.117908,
+        "p90": 5.577644,
+        "p95": 6.568683,
+        "p99": 9.587081,
+        "max": 10.317032
+      },
+      "cosine": {
+        "min": 0.001303,
+        "mean": 0.045754,
+        "median": 0.01951,
+        "p90": 0.12405,
+        "p95": 0.197474,
+        "p99": 0.342483,
+        "max": 0.399391
+      },
+      "activation_xor": {
+        "min": 0.007812,
+        "mean": 0.08112,
+        "median": 0.065104,
+        "p90": 0.169271,
+        "p95": 0.197917,
+        "p99": 0.252682,
+        "max": 0.296875
+      }
+    },
+    "normalize_unit_norm_max_err": 1.1920928955078125e-07
+  },
+  "rfdetr-arch-b:backbone_42": {
+    "feature_shape": [
+      42,
+      42,
+      256
+    ],
+    "dtype": "torch.float32",
+    "device": "cuda:0",
+    "feature_MB": 1.72265625,
+    "store_bytes_incl_shared": 5420772,
+    "checkpoint_sha256": "f1edd91a3b41a0d140363a50d494323327b53ad05b3a66352cb3ecdf64332ccb",
+    "signature": {
+      "extractor_family": "rfdetr",
+      "extractor_version": "architecture-b",
+      "extractor_variant": "seglarge",
+      "checkpoint_sha256": "f1edd91a3b41a0d140363a50d494323327b53ad05b3a66352cb3ecdf64332ccb",
+      "feature_stage": "backbone_42",
+      "tensor_layout": "HWC",
+      "spatial_height": 42,
+      "spatial_width": 42,
+      "channels": 256,
+      "input_height": 504,
+      "input_width": 504,
+      "stride": 12.0,
+      "patch_size": 12,
+      "preprocessing_signature": "rfdetr-arch-b-seglarge-504",
+      "normalization": "bgr->rgb, float/255, torchvision F.resize(504x504), F.normalize(mean=0.485,0.456,0.406; std=0.229,0.224,0.225)"
+    },
+    "tap": "RFDETRSegLarge.model.model.backbone(NestedTensor) -> features[0].decompose() = srcs[0] (vendored RSD-V1 extract_backbone_feature)",
+    "levels": null,
+    "timing_ms": {
+      "feature_preprocess_ms": 7.38,
+      "feature_forward_ms": 18.99,
+      "feature_extract_ms": 26.37,
+      "feature_store_ms": 0.048,
+      "delta_ms": 0.372,
+      "identity_delta_ms": 0.638,
+      "preview_ms": 6.27,
+      "normalize_ms": 0.354,
+      "mahalanobis_ms": 6.937
+    },
+    "load_count": 1,
+    "identity": {
+      "l2": {
+        "min": 0.0,
+        "mean": 0.0,
+        "median": 0.0,
+        "p90": 0.0,
+        "p95": 0.0,
+        "p99": 0.0,
+        "max": 0.0
+      },
+      "cosine": {
+        "min": -0.0,
+        "mean": 0.0,
+        "median": 0.0,
+        "p90": 0.0,
+        "p95": 0.0,
+        "p99": 0.0,
+        "max": 0.0
+      },
+      "raw_delta_max_abs": 0.0,
+      "raw_delta_norm": 0.0,
+      "mahalanobis": {
+        "min": 12.672132,
+        "mean": 12.672132,
+        "median": 12.672132,
+        "p90": 12.672132,
+        "p95": 12.672132,
+        "p99": 12.672132,
+        "max": 12.672132
+      }
+    },
+    "localized": {
+      "l2": {
+        "min": 0.083802,
+        "mean": 0.320505,
+        "median": 0.22493,
+        "p90": 0.468838,
+        "p95": 0.72704,
+        "p99": 2.335914,
+        "max": 3.166563,
+        "changed_mean": 2.234482526779175,
+        "unchanged_mean": 0.2738226652145386,
+        "ratio": 8.16032684301426,
+        "changed_tokens": 42
+      },
+      "mahalanobis": {
+        "min": 15.889691,
+        "mean": 59.907974,
+        "median": 27.104584,
+        "p90": 62.949699,
+        "p95": 132.974045,
+        "p99": 1031.702026,
+        "max": 1555.15625,
+        "changed_mean": 967.1441650390625,
+        "unchanged_mean": 37.78025436401367,
+        "ratio": 25.599196751419747,
+        "changed_tokens": 42
+      }
+    },
+    "real_pair": {
+      "l2": {
+        "min": 0.244993,
+        "mean": 0.923032,
+        "median": 0.674755,
+        "p90": 1.978058,
+        "p95": 2.67509,
+        "p99": 3.408184,
+        "max": 4.141805
+      },
+      "cosine": {
+        "min": 0.004179,
+        "mean": 0.073792,
+        "median": 0.027058,
+        "p90": 0.240976,
+        "p95": 0.396879,
+        "p99": 0.527378,
+        "max": 0.618705
+      },
+      "mahalanobis": {
+        "min": 26.669298,
+        "mean": 233.712662,
+        "median": 111.345612,
+        "p90": 702.3703,
+        "p95": 981.228394,
+        "p99": 1435.039795,
+        "max": 1896.015991
+      },
+      "mahalanobis_tokens_ge_tau_preset (info only)": 221
+    },
+    "normalize_unit_norm_max_err": 1.1920928955078125e-07,
+    "geometry": {
+      "id": "geo_archb_b2_frozen",
+      "checkpoint_sha256": "f1edd91a3b41a0d140363a50d494323327b53ad05b3a66352cb3ecdf64332ccb",
+      "fitting_method": "LedoitWolf shrinkage covariance (B1 covariance.fit_shrinkage_covariance); mu = B1 residual_extractor.compute_mu_delta",
+      "tau_mah_preset": 589.3056640625,
+      "tau_applied": false
+    },
+    "shared_forward_semantic_heads": {
+      "pred_masks": [
+        1,
+        200,
+        126,
+        126
+      ],
+      "pred_logits": [
+        1,
+        200,
+        4
+      ],
+      "second_backbone_pass": false
+    }
+  },
+  "parity_v22_vs_original_source": {
+    "fine_max_abs_diff": 0.0,
+    "coarse_max_abs_diff": 0.0,
+    "original_level_shapes": [
+      [
+        1,
+        384,
+        80,
+        80
+      ],
+      [
+        1,
+        384,
+        20,
+        20
+      ]
+    ]
+  },
+  "parity_arch_b_vs_original_source": {
+    "feature_max_abs_diff": 0.0,
+    "mahalanobis_vs_B1_mahalanobis_map_max_rel_diff": 0.0
+  },
+  "stress": {
+    "rfdetr-v2.2:fine_80": {
+      "iterations": 50,
+      "final_store": {
+        "entries": 0,
+        "bytes": 0,
+        "cpu_bytes": 0,
+        "gpu_bytes": 0,
+        "peak_entries": 3,
+        "peak_cpu_bytes": 0,
+        "peak_gpu_bytes": 29491200,
+        "max_entries": 64,
+        "max_bytes": 2147483648
+      },
+      "cuda_allocated_MB": {
+        "before": 720.1064453125,
+        "after_iter_1": 729.4814453125,
+        "steady_median": 729.4814453125,
+        "after": 729.4814453125
+      },
+      "growth_iter10_to_50_MB": 0.0
+    },
+    "rfdetr-arch-b:backbone_42": {
+      "iterations": 50,
+      "final_store": {
+        "entries": 0,
+        "bytes": 0,
+        "cpu_bytes": 0,
+        "gpu_bytes": 0,
+        "peak_entries": 3,
+        "peak_cpu_bytes": 0,
+        "peak_gpu_bytes": 12647880,
+        "max_entries": 64,
+        "max_bytes": 2147483648
+      },
+      "cuda_allocated_MB": {
+        "before": 729.4814453125,
+        "after_iter_1": 723.5537109375,
+        "steady_median": 723.5537109375,
+        "after": 723.5537109375
+      },
+      "growth_iter10_to_50_MB": 0.0
+    }
+  },
+  "load_counts_final": {
+    "rfdetr-v2.2": 1,
+    "rfdetr-arch-b": 1
+  }
+}
