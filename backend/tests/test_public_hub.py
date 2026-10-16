@@ -15,7 +15,7 @@ from inference_studio.config import Settings
 from inference_studio.main import create_app
 from inference_studio.models import ModelRegistry, WeightStore
 from inference_studio.public_hub.assets import ImportedAssetRegistry
-from inference_studio.public_hub.base import DownloadedResource, ExternalProvider
+from inference_studio.public_hub.base import DownloadedResource, ExternalProvider, run_with_progress
 from inference_studio.public_hub.benchmarks import BenchmarkRegistry
 from inference_studio.public_hub.downloads import DownloadManager
 from inference_studio.public_hub.credentials import ProviderCredentialStore
@@ -182,6 +182,87 @@ async def test_duplicate_active_download_is_reused(tmp_path):
     first, second = manager.create(request), manager.create(request)
     assert first.download_id == second.download_id
     await manager._tasks[first.download_id]
+
+
+class SlowSdkProvider(FakeProvider):
+    """Mimics a blocking SDK download (huggingface_hub/kaggle): no byte callback, files land over time."""
+
+    CHUNK, CHUNKS = 64 * 1024, 6
+
+    def __init__(self, manager_ref: dict, delay: float = 0.15):
+        super().__init__()
+        self.manager_ref, self.delay = manager_ref, delay
+        self.seen: list[tuple[int, int | None]] = []
+        self.states_during_transfer: list[DownloadState] = []
+
+    def details(self, ref):
+        return ExternalResource(ref=ref, title="Resource", resolved_revision="abc123", license="MIT", size_bytes=self.CHUNK * self.CHUNKS)
+
+    def download(self, ref, destination, requested_format, progress, cancelled):
+        import time
+        destination.mkdir(parents=True)
+        identity = destination.parent.name
+
+        def work():
+            for index in range(self.CHUNKS):
+                if cancelled():
+                    return
+                (destination / f"part{index}.bin").write_bytes(b"x" * self.CHUNK)
+                self.states_during_transfer.append(self.manager_ref["manager"].get(identity).state)
+                time.sleep(self.delay)
+
+        def recording(done, total):
+            self.seen.append((done, total))
+            progress(done, total)
+
+        run_with_progress(work, destination, self.CHUNK * self.CHUNKS, recording, cancelled, interval=0.02)
+        if cancelled():
+            raise InterruptedError("Download cancelled")
+        return DownloadedResource(destination, "abc123")
+
+
+@pytest.mark.asyncio
+async def test_blocking_sdk_download_reports_live_progress_and_downloading_state(tmp_path):
+    settings = _settings(tmp_path); settings.prepare(); ref: dict = {}
+    provider = SlowSdkProvider(ref, delay=0.05)
+    manager = ref["manager"] = DownloadManager(settings, ExternalProviderRegistry([provider]), ImportedAssetRegistry(settings.public_hub_root / "metadata/assets"))
+    job = manager.create(ResourceDownloadRequest(resource=ExternalResourceRef(provider="fake", kind=ResourceKind.DATASET, resource_id="owner/slow")))
+    await manager._tasks[job.download_id]
+    total = SlowSdkProvider.CHUNK * SlowSdkProvider.CHUNKS
+    assert provider.states_during_transfer and set(provider.states_during_transfer) == {DownloadState.DOWNLOADING}
+    partial = [done for done, expected in provider.seen if 0 < done < total and expected == total]
+    assert partial, provider.seen  # progress moved before the transfer finished
+    assert [done for done, _ in provider.seen] == sorted(done for done, _ in provider.seen)
+
+
+@pytest.mark.asyncio
+async def test_cancel_interrupts_a_blocking_sdk_download_promptly(tmp_path):
+    import asyncio, time
+    settings = _settings(tmp_path); settings.prepare(); ref: dict = {}
+    provider = SlowSdkProvider(ref, delay=0.3)  # whole transfer would take about 1.8 s
+    manager = ref["manager"] = DownloadManager(settings, ExternalProviderRegistry([provider]), ImportedAssetRegistry(settings.public_hub_root / "metadata/assets"))
+    job = manager.create(ResourceDownloadRequest(resource=ExternalResourceRef(provider="fake", kind=ResourceKind.DATASET, resource_id="owner/cancel")))
+    while manager.get(job.download_id).state != DownloadState.DOWNLOADING:
+        await asyncio.sleep(0.01)
+    started = time.monotonic()
+    manager.cancel(job.download_id)
+    await manager._tasks[job.download_id]
+    final = manager.get(job.download_id)
+    assert final.state == DownloadState.CANCELLED and time.monotonic() - started < 0.5
+    assert not (manager.staging / job.download_id).exists()
+
+
+@pytest.mark.asyncio
+async def test_recover_honours_a_cancel_requested_before_restart(tmp_path):
+    settings = _settings(tmp_path); settings.prepare()
+    manager = DownloadManager(settings, ExternalProviderRegistry([FakeProvider()]), ImportedAssetRegistry(settings.public_hub_root / "metadata/assets"))
+    from inference_studio.public_hub.schemas import ResourceDownloadJob
+    stuck = ResourceDownloadJob(download_id="dl_" + "a" * 32, resource=ExternalResourceRef(provider="fake", kind=ResourceKind.DATASET, resource_id="owner/stuck"), state=DownloadState.RESOLVING, cancel_requested=True)
+    manager._save(stuck)
+    (manager.staging / stuck.download_id).mkdir()
+    await manager.recover()
+    assert manager.get(stuck.download_id).state == DownloadState.CANCELLED
+    assert stuck.download_id not in manager._tasks and not (manager.staging / stuck.download_id).exists()
 
 
 def _registered_dataset(tmp_path: Path):

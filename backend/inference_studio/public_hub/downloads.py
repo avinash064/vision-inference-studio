@@ -33,6 +33,9 @@ class DownloadManager:
         self._semaphore = asyncio.Semaphore(settings.public_hub_max_concurrent_downloads)
         self._tasks: dict[str, asyncio.Task] = {}
         self._active_cache_paths: set[Path] = set()
+        # Cancel requests are also kept in memory: progress writes from the transfer thread
+        # re-save the job document and must never resurrect a cancelled download.
+        self._cancelled: set[str] = set()
 
     @staticmethod
     def public(job: ResourceDownloadJob) -> dict:
@@ -70,7 +73,12 @@ class DownloadManager:
     async def recover(self) -> None:
         for raw in self.store.list():
             job = ResourceDownloadJob.model_validate(raw)
-            if job.state not in TERMINAL_DOWNLOAD_STATES:
+            if job.state not in TERMINAL_DOWNLOAD_STATES and job.cancel_requested:
+                # Cancelled before the restart: honour it instead of silently resuming.
+                job.state, job.error = DownloadState.CANCELLED, "Download cancelled"
+                self._save(job)
+                shutil.rmtree(self.staging / job.download_id, ignore_errors=True)
+            elif job.state not in TERMINAL_DOWNLOAD_STATES:
                 job.state, job.error, job.cancel_requested = DownloadState.QUEUED, None, False
                 self._save(job)
                 self._schedule(job.download_id)
@@ -79,8 +87,12 @@ class DownloadManager:
         job = self.get(identity)
         if job.state not in TERMINAL_DOWNLOAD_STATES:
             job.cancel_requested = True
+            self._cancelled.add(identity)
             self._save(job)
         return job
+
+    def _is_cancelled(self, identity: str) -> bool:
+        return identity in self._cancelled or self.get(identity).cancel_requested
 
     def retry(self, identity: str) -> ResourceDownloadJob:
         job = self.get(identity)
@@ -88,6 +100,7 @@ class DownloadManager:
             raise ValueError("Only failed or cancelled downloads can be retried")
         job.state, job.error, job.cancel_requested = DownloadState.QUEUED, None, False
         job.progress, job.bytes_downloaded, job.retry_count = 0, 0, job.retry_count + 1
+        self._cancelled.discard(identity)
         self._save(job)
         self._schedule(identity)
         return job
@@ -104,22 +117,24 @@ class DownloadManager:
                 self._save(job)
                 details = await asyncio.to_thread(provider.details, job.resource)
                 job.resolved_revision = details.resolved_revision or job.resource.revision or job.resource.version
-                if self.get(identity).cancel_requested:
+                if self._is_cancelled(identity):
                     raise InterruptedError("Download cancelled")
-                job.state = DownloadState.DOWNLOADING
+                job.state, job.total_bytes = DownloadState.DOWNLOADING, details.size_bytes
+                self._save(job)
                 started = time.monotonic()
 
                 def progress(done: int, total: int | None) -> None:
                     current = self.get(identity)
+                    current.cancel_requested = current.cancel_requested or identity in self._cancelled
                     current.bytes_downloaded, current.total_bytes = done, total
                     current.progress = min(99, done / total * 100) if total else current.progress
                     elapsed = max(time.monotonic() - started, 0.001)
                     current.speed_bytes_per_second = done / elapsed
                     self._save(current)
 
-                downloaded = await asyncio.to_thread(provider.download, job.resource, stage / "payload", job.requested_format, progress, lambda: self.get(identity).cancel_requested)
+                downloaded = await asyncio.to_thread(provider.download, job.resource, stage / "payload", job.requested_format, progress, lambda: self._is_cancelled(identity))
                 job = self.get(identity)
-                if job.cancel_requested:
+                if self._is_cancelled(identity):
                     raise InterruptedError("Download cancelled")
                 job.state = DownloadState.VERIFYING
                 self._save(job)

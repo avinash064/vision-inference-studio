@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 from typing import Any
 
-from ..base import DownloadedResource, ExternalProvider
+from ..base import DownloadedResource, ExternalProvider, directory_bytes, run_with_progress
 from ..schemas import AuthState, ExternalFile, ExternalResource, ExternalResourceRef, ProviderCapabilities, ResourceKind, SearchPage
 
 
@@ -81,14 +81,18 @@ class KaggleProvider(ExternalProvider):
         api = self._api()
         destination.mkdir(parents=True, exist_ok=True)
         if ref.kind == ResourceKind.DATASET:
-            api.dataset_download_files(ref.resource_id, path=str(destination), force=True, quiet=True, unzip=False)
+            work = lambda: api.dataset_download_files(ref.resource_id, path=str(destination), force=True, quiet=True, unzip=False)
         else:
             identity = ref.resource_id
             if ref.version and identity.count("/") >= 3 and not identity.endswith(f"/{ref.version}"):
                 identity += f"/{ref.version}"
             if identity.count("/") < 3:
                 raise ValueError("Kaggle model download requires owner/model/framework/variation and optional version")
-            api.model_instance_version_download(identity, path=str(destination), force=True, quiet=True, untar=False)
+            work = lambda: api.model_instance_version_download(identity, path=str(destination), force=True, quiet=True, untar=False)
+        # The SDK call is a single blocking archive download; report bytes as they land (total unknown).
+        run_with_progress(work, destination, None, progress, cancelled)
+        if cancelled():
+            raise InterruptedError("Download cancelled")
         files = [path for path in destination.rglob("*") if path.is_file()]
         if not files:
             raise RuntimeError("Kaggle returned no downloadable files")

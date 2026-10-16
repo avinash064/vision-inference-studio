@@ -2,7 +2,7 @@
 
 A local, node-based computer-vision inference workbench. You build a typed workflow graph on a React Flow canvas, upload images, videos and model weights, then run image or frame-by-frame video inference on your own GPU. Results stream back live over WebSocket. Vision Inference Studio runs as a desktop app (Electron) or as a FastAPI backend with a browser UI.
 
-Current version: **0.6.0**. Linux x86_64 packages for every release are attached to the [GitHub releases](../../releases).
+Current version: **0.6.1**. Linux x86_64 packages for every release are attached to the [GitHub releases](../../releases).
 
 ![Grounding DINO text-prompt detection on an image](docs/images/studio-image-grounding-dino.png)
 
@@ -71,6 +71,7 @@ Each version is a git tag with a GitHub release. Model weights are **not** inclu
 
 | Tag | Highlights | Assets |
 |---|---|---|
+| **v0.6.1** | Fix: Public Hub downloads show live progress (byte-accurate for Hugging Face, bytes-on-disk for Kaggle), the job state moves to `DOWNLOADING`, and **Cancel** stops a transfer within about half a second. A download cancelled before a restart now stays cancelled instead of silently resuming. | `.deb`, portable `.zip` |
 | **v0.6.0** | Public Resource Hub (Hugging Face / Roboflow / Kaggle), API Keys page, durable downloads, dataset/model inspection, immutable benchmarks, experiments, comparisons, recipe promotion. Packaging fix: `requirements-public-hub.txt` is now shipped and hashed. | `.deb`, portable `.zip` |
 | **v0.5.0** | Immutable `ModelKey` and per-call requests, `ExecutionScope` cleanup, explicit runtime values, lazy chaiNNer streams, DINOv3 spatial features, `FeatureStore`, RF-DETR v2.2 and Architecture B feature providers, Activation XOR, Mahalanobis difference, geometry store | `.deb`, portable `.zip` |
 | **v0.4.0** | SAM, SAM 2/2.1, SAM 3, official Grounding DINO, chaiNNer node import, self-contained desktop build with bundled Python 3.12.15 | `.deb`, portable `.tar.gz` |
@@ -91,7 +92,7 @@ Every asset has a `SHA256SUMS` file in the same release. Verify downloads with `
 
 ```bash
 sha256sum -c SHA256SUMS --ignore-missing
-sudo apt install ./vision-inference-studio_0.6.0_amd64.deb
+sudo apt install ./vision-inference-studio_0.6.1_amd64.deb
 vision-inference-studio            # or launch it from the applications menu
 ```
 
@@ -121,7 +122,7 @@ If you already have a working environment (Python 3.10+ with the packages from `
    A=/usr/lib/vision-inference-studio/resources
    HASH=$(VIS_APP_ROOT=$A bash $A/packaging/linux/setup-runtime.sh --print-requirements-hash | tail -1)
    cat > "$R/runtime-version.json" <<EOF
-   {"app_version": "0.6.0", "requirements_hash": "$HASH", "python_version": "3.12",
+   {"app_version": "0.6.1", "requirements_hash": "$HASH", "python_version": "3.12",
     "python_executable": "/path/to/your/venv/bin/python", "created_at": "$(date -Is)", "cuda": {"available": true}}
    EOF
    ```
@@ -144,7 +145,7 @@ Both portable formats need no root access.
 **v0.5.0 and later (`.zip`)** contain the unpacked app folder. Run it in place:
 
 ```bash
-unzip vision-inference-studio-0.6.0-linux-x64.zip
+unzip vision-inference-studio-0.6.1-linux-x64.zip
 "./Vision Inference Studio-linux-x64/vision-inference-studio"
 ```
 
