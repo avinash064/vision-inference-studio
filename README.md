@@ -2,7 +2,7 @@
 
 A local, node-based computer-vision inference workbench. You build a typed workflow graph on a React Flow canvas, upload images, videos and model weights, then run image or frame-by-frame video inference on your own GPU. Results stream back live over WebSocket. Vision Inference Studio runs as a desktop app (Electron) or as a FastAPI backend with a browser UI.
 
-Current version: **0.6.1**. Linux x86_64 packages for every release are attached to the [GitHub releases](../../releases).
+Current version: **0.6.2**. Linux x86_64 packages for every release are attached to the [GitHub releases](../../releases).
 
 ![Grounding DINO text-prompt detection on an image](docs/images/studio-image-grounding-dino.png)
 
@@ -71,6 +71,7 @@ Each version is a git tag with a GitHub release. Model weights are **not** inclu
 
 | Tag | Highlights | Assets |
 |---|---|---|
+| **v0.6.2** | Use downloads directly: **Open in Canvas** on completed downloads and imported assets builds Image → Model → Preview from a dataset image or a downloaded weight; **Choose weights…** lets you pick one checkpoint from multi-model repositories (e.g. YOLO + RF-DETR + RT-DETR in one repo) and register it for a built-in adapter; **Benchmark** jumps from a dataset download to the benchmark dialog for Experiments. | `.deb`, portable `.zip` |
 | **v0.6.1** | Fix: Public Hub downloads show live progress (byte-accurate for Hugging Face, bytes-on-disk for Kaggle), the job state moves to `DOWNLOADING`, and **Cancel** stops a transfer within about half a second. A download cancelled before a restart now stays cancelled instead of silently resuming. | `.deb`, portable `.zip` |
 | **v0.6.0** | Public Resource Hub (Hugging Face / Roboflow / Kaggle), API Keys page, durable downloads, dataset/model inspection, immutable benchmarks, experiments, comparisons, recipe promotion. Packaging fix: `requirements-public-hub.txt` is now shipped and hashed. | `.deb`, portable `.zip` |
 | **v0.5.0** | Immutable `ModelKey` and per-call requests, `ExecutionScope` cleanup, explicit runtime values, lazy chaiNNer streams, DINOv3 spatial features, `FeatureStore`, RF-DETR v2.2 and Architecture B feature providers, Activation XOR, Mahalanobis difference, geometry store | `.deb`, portable `.zip` |
@@ -92,7 +93,7 @@ Every asset has a `SHA256SUMS` file in the same release. Verify downloads with `
 
 ```bash
 sha256sum -c SHA256SUMS --ignore-missing
-sudo apt install ./vision-inference-studio_0.6.1_amd64.deb
+sudo apt install ./vision-inference-studio_0.6.2_amd64.deb
 vision-inference-studio            # or launch it from the applications menu
 ```
 
@@ -122,7 +123,7 @@ If you already have a working environment (Python 3.10+ with the packages from `
    A=/usr/lib/vision-inference-studio/resources
    HASH=$(VIS_APP_ROOT=$A bash $A/packaging/linux/setup-runtime.sh --print-requirements-hash | tail -1)
    cat > "$R/runtime-version.json" <<EOF
-   {"app_version": "0.6.1", "requirements_hash": "$HASH", "python_version": "3.12",
+   {"app_version": "0.6.2", "requirements_hash": "$HASH", "python_version": "3.12",
     "python_executable": "/path/to/your/venv/bin/python", "created_at": "$(date -Is)", "cuda": {"available": true}}
    EOF
    ```
@@ -145,7 +146,7 @@ Both portable formats need no root access.
 **v0.5.0 and later (`.zip`)** contain the unpacked app folder. Run it in place:
 
 ```bash
-unzip vision-inference-studio-0.6.1-linux-x64.zip
+unzip vision-inference-studio-0.6.2-linux-x64.zip
 "./Vision Inference Studio-linux-x64/vision-inference-studio"
 ```
 
@@ -307,6 +308,21 @@ The source-of-truth RF-DETR code is vendored verbatim in `backend/inference_stud
 - **Roboflow Universe:** versioned datasets with format-aware export. No model artifacts are claimed.
 - **Kaggle:** datasets, and model instances where the API exposes an `owner/model/framework/variation[/version]` identity.
 
+### Use a download in the canvas
+
+Completed downloads (and the cards on **Assets**) have direct actions:
+
+| Download | Action | Result |
+|---|---|---|
+| Dataset | **Open in Canvas** | Image → Model → Detection Preview with the first dataset image loaded (or click any preview thumbnail to use that image). The model node reuses your most recently registered weight. |
+| Dataset | **Benchmark** | Opens the benchmark dialog for that dataset; once created, **Open Experiments** compares saved workflows on it. |
+| Model with one recognised checkpoint | **Open in Canvas** | Image → Model → matching preview, with the family, version and weight preselected. |
+| Model with several or unrecognised checkpoints | **Choose weights…** | Lists every checkpoint file with its size and a suggested family (from the path, e.g. `weights/YOLOv12-S/best.pt` → YOLO v12). Pick one; it is copied into the weight store and opened in the canvas. Files with no compatible built-in family are shown but disabled. |
+
+Opening asks before replacing a non-empty canvas. The selected file runs only through the built-in adapter you choose; nothing from the download is imported as code. `.pt`/`.pth` checkpoints are pickles, so only register weights you trust.
+
+Check the **Size** field for families without a `custom` size: RF-DETR checkpoints must match the size they were trained at (for example, BMD-45's RF-DETR checkpoint is `base`). A mismatch fails with RF-DETR's patch-size error rather than producing wrong results.
+
 Public datasets remain experiment assets. Moving one into production data is an explicit step in Auto Annotation.
 
 The design decisions are recorded in [`docs/adr/`](docs/adr/): provider interface, server-side secrets, download ≠ executability, no remote code, immutable benchmarks, identical experiment inputs, versioned recipes, production sees promoted recipes only, and resource provenance.
@@ -454,7 +470,9 @@ GET  /public-hub/downloads         POST /public-hub/downloads        GET /public
 GET  /public-hub/downloads/{id}    POST /public-hub/downloads/{id}/cancel   POST /public-hub/downloads/{id}/retry
 GET  /assets/datasets              GET  /assets/datasets/{dataset_id}
 GET  /assets/datasets/{dataset_id}/samples                GET /assets/datasets/{dataset_id}/samples/{item_id}
+POST /assets/datasets/{dataset_id}/samples/{item_id}/import
 GET  /assets/models                GET  /assets/models/{model_artifact_id}
+GET  /assets/models/{model_artifact_id}/artifacts          POST /assets/models/{model_artifact_id}/artifacts/register
 GET  /experiments                  POST /experiments                 GET /experiments/{id}
 POST /experiments/{id}/start       POST /experiments/{id}/cancel     POST /experiments/{id}/promote
 GET  /experiments/{id}/results     GET  /experiments/{id}/items/{item_id}

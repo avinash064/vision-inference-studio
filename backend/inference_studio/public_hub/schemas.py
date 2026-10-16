@@ -183,6 +183,19 @@ class DatasetAsset(BaseModel):
     inspection: DatasetInspection
 
 
+class RegisteredWeight(BaseModel):
+    """A checkpoint file inside an imported model that the user explicitly registered for a built-in adapter."""
+    relative_path: str
+    family: str
+    weight_id: str
+    registered_at: str = Field(default_factory=utc_now)
+
+
+class ModelArtifactWeightRequest(BaseModel):
+    relative_path: str = Field(min_length=1, max_length=1024)
+    family: str = Field(min_length=1, max_length=64)
+
+
 class ModelArtifact(BaseModel):
     model_artifact_id: str
     display_name: str
@@ -198,6 +211,7 @@ class ModelArtifact(BaseModel):
     size_bytes: int
     imported_at: str = Field(default_factory=utc_now)
     inspection: ModelInspection
+    registered_weights: list[RegisteredWeight] = Field(default_factory=list)
 
 
 class BenchmarkCreate(BaseModel):

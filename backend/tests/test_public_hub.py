@@ -399,3 +399,57 @@ def test_credential_store_validates_persists_without_echo_and_removes(monkeypatc
     removed = store.remove("huggingface")
     assert removed["configured"] is False and "HF_TOKEN=" not in (tmp_path / ".env").read_text()
     monkeypatch.delenv("HF_TOKEN", raising=False)
+
+
+def test_dataset_sample_import_creates_a_reusable_canvas_image_asset(tmp_path):
+    settings = _settings(tmp_path); settings.prepare(); _, dataset = _registered_dataset(tmp_path / "source")
+    app = create_app(settings); app.state.services.imported_assets.datasets.put(dataset.dataset_id, dataset.model_dump(mode="json"))
+    item = dataset.inspection.items[0]
+    with TestClient(app) as client:
+        first = client.post(f"/api/v1/assets/datasets/{dataset.dataset_id}/samples/{item['item_id']}/import")
+        again = client.post(f"/api/v1/assets/datasets/{dataset.dataset_id}/samples/{item['item_id']}/import")
+        missing = client.post(f"/api/v1/assets/datasets/{dataset.dataset_id}/samples/nope/import")
+        unknown = client.post(f"/api/v1/assets/datasets/ds_unknown/samples/{item['item_id']}/import")
+        asset = first.json()
+        workflow = {"version": "0.2", "name": "sample", "nodes": [
+            {"id": "src", "type": "image_source", "position": {"x": 0, "y": 0}, "config": {"asset_id": asset["asset_id"]}},
+            {"id": "view", "type": "image_preview", "position": {"x": 1, "y": 0}, "config": {}}],
+            "edges": [{"id": "e", "source": "src", "source_handle": "image", "target": "view", "target_handle": "image"}]}
+        validation = client.post("/api/v1/workflows/validate", json=workflow).json()
+    assert first.status_code == 201 and asset["kind"] == "image" and asset["asset_id"].startswith("ast_")
+    assert (asset["width"], asset["height"]) == (item["width"], item["height"])  # full resolution, not the thumbnail
+    assert "path" not in asset and "local_root" not in first.text
+    assert again.json()["asset_id"] == asset["asset_id"]  # identical bytes reuse one asset
+    assert missing.status_code == 404 and unknown.status_code == 404
+    assert validation["valid"], validation
+
+
+def test_ambiguous_model_artifact_files_can_be_listed_and_registered(tmp_path):
+    from inference_studio.public_hub.schemas import InspectionState, ModelInspection
+    settings = _settings(tmp_path); settings.prepare()
+    root = tmp_path / "bmd"  # mirrors iisc-aim/BMD-45: several checkpoints, only some with a built-in adapter
+    for relative in ("weights/YOLOv12-S/best.pt", "weights/RF-DETR/checkpoint_best_total.pth", "weights/D-FINE/best_stg1.pth", ".cache/huggingface/stale.pt", "README.md"):
+        (root / relative).parent.mkdir(parents=True, exist_ok=True); (root / relative).write_bytes(b"checkpoint-" + relative.encode())
+    app = create_app(settings)
+    resource = ExternalResource(ref=ExternalResourceRef(provider="huggingface", kind=ResourceKind.MODEL, resource_id="iisc-aim/BMD-45", revision="1"), title="BMD-45", resolved_revision="1")
+    artifact = app.state.services.imported_assets.register_model(root, resource, ModelInspection(state=InspectionState.AMBIGUOUS, explanation="Multiple incompatible artifact formats were found"))
+    base = f"/api/v1/assets/models/{artifact.model_artifact_id}"
+    with TestClient(app) as client:
+        listing = client.get(f"{base}/artifacts").json()
+        files = {item["relative_path"]: item for item in listing["files"]}
+        registered = client.post(f"{base}/artifacts/register", json={"relative_path": "weights/YOLOv12-S/best.pt", "family": "yolo"})
+        repeated = client.post(f"{base}/artifacts/register", json={"relative_path": "weights/YOLOv12-S/best.pt", "family": "yolo"})
+        traversal = client.post(f"{base}/artifacts/register", json={"relative_path": "../outside.pt", "family": "yolo"})
+        wrong_extension = client.post(f"{base}/artifacts/register", json={"relative_path": "weights/D-FINE/best_stg1.pth", "family": "onnx"})
+        unknown_family = client.post(f"{base}/artifacts/register", json={"relative_path": "weights/D-FINE/best_stg1.pth", "family": "nope"})
+        weights = client.get("/api/v1/weights").json()
+        after = client.get(base).json(); relisted = client.get(f"{base}/artifacts").json()
+    assert set(files) == {"weights/YOLOv12-S/best.pt", "weights/RF-DETR/checkpoint_best_total.pth", "weights/D-FINE/best_stg1.pth"}  # .cache and non-weights skipped
+    assert files["weights/YOLOv12-S/best.pt"]["suggested_family"] == "yolo" and "yolo" in files["weights/YOLOv12-S/best.pt"]["families"]
+    assert files["weights/RF-DETR/checkpoint_best_total.pth"]["suggested_family"] == "rfdetr"
+    assert files["weights/D-FINE/best_stg1.pth"]["suggested_family"] is None
+    assert registered.status_code == 201 and repeated.json()["weight_id"] == registered.json()["weight_id"]
+    assert any(item["weight_id"] == registered.json()["weight_id"] and item["family"] == "yolo" for item in weights)
+    assert after["weight_id"] == registered.json()["weight_id"] and len(after["registered_weights"]) == 1 and "local_root" not in after
+    assert next(item for item in relisted["files"] if item["relative_path"] == "weights/YOLOv12-S/best.pt")["weight_id"] == registered.json()["weight_id"]
+    assert traversal.status_code == 404 and wrong_extension.status_code == 422 and unknown_family.status_code == 422

@@ -11,6 +11,7 @@ from fastapi import FastAPI, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
+from inference_studio import __version__
 from inference_studio.adapters import AdapterRegistry
 from inference_studio.api import execution_socket, router
 from inference_studio.assets import AssetStore
@@ -118,7 +119,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     experiments = ExperimentRegistry(config.public_hub_root / "metadata", benchmark_registry, imported_assets, assets, engine)
     recipes = RecipeRegistry(config.public_hub_root / "metadata" / "recipes", benchmark_registry, weights)
     credentials = ProviderCredentialStore(Path(os.getenv("VIS_ENV_FILE", config.project_root / ".env")).expanduser(), providers)
-    app = FastAPI(title="Vision Inference Studio", version="0.6.0")
+    app = FastAPI(title="Vision Inference Studio", version=__version__)
     app.state.services = Services(config, nodes, models, weights, assets, manager, validator, engine, WorkflowStore(config.workflows_dir), chainner, chainner_settings, geometries, providers, imported_assets, downloads, benchmark_registry, experiments, recipes, credentials)
     app.add_middleware(CORSMiddleware, allow_origins=["null", "http://localhost:5173", "http://127.0.0.1:5173", "http://localhost:5174", "http://127.0.0.1:5174"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
     app.add_middleware(DesktopSessionMiddleware)
@@ -127,11 +128,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.get("/health")
     def health():
-        return {"status": "ok", "version": "0.6.0"}
+        return {"status": "ok", "version": __version__}
 
     @app.get("/")
     def root():
-        return {"name": "Vision Inference Studio API", "version": "0.6.0", "health": "/health", "docs": "/docs", "frontend": "http://127.0.0.1:5174"}
+        return {"name": "Vision Inference Studio API", "version": __version__, "health": "/health", "docs": "/docs", "frontend": "http://127.0.0.1:5174"}
 
     async def recover_background_work():
         await downloads.recover()

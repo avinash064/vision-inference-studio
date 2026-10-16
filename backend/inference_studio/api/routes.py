@@ -18,9 +18,10 @@ import cv2
 from inference_studio.adapters import ModelConfig
 from inference_studio.graph import Workflow
 from inference_studio.public_hub.schemas import (
-    BenchmarkCreate, ExperimentCreate, ExternalResourceRef, PromoteRequest,
+    BenchmarkCreate, ExperimentCreate, ExternalResourceRef, ModelArtifactWeightRequest, PromoteRequest, RegisteredWeight,
     ProviderCredentialUpdate, ResourceDownloadRequest, ResourceKind,
 )
+from inference_studio.models.registry import ModelRegistryError
 from inference_studio.public_hub.security import redact_error
 
 
@@ -420,8 +421,7 @@ def dataset_samples(dataset_id: str, request: Request, limit: int = 4):
     return values
 
 
-@router.get("/assets/datasets/{dataset_id}/samples/{item_id}")
-async def dataset_sample_image(dataset_id: str, item_id: str, request: Request):
+def _dataset_sample_path(request: Request, dataset_id: str, item_id: str) -> Path:
     try:
         asset = services(request).imported_assets.get_dataset(dataset_id)
     except (KeyError, ValueError) as exc:
@@ -432,6 +432,23 @@ async def dataset_sample_image(dataset_id: str, item_id: str, request: Request):
     root = Path(asset.local_root).resolve(); source = (root / item["relative_path"]).resolve()
     if root not in source.parents or not source.is_file():
         raise HTTPException(404, "Dataset sample is unavailable")
+    return source
+
+
+@router.post("/assets/datasets/{dataset_id}/samples/{item_id}/import", status_code=201)
+async def import_dataset_sample(dataset_id: str, item_id: str, request: Request):
+    """Register one imported-dataset image as an ordinary image asset so a canvas Image node can use it."""
+    source = _dataset_sample_path(request, dataset_id, item_id)
+    try:
+        record = await asyncio.to_thread(services(request).assets.import_path, source, "image")
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    return record.model_dump(mode="json")
+
+
+@router.get("/assets/datasets/{dataset_id}/samples/{item_id}")
+async def dataset_sample_image(dataset_id: str, item_id: str, request: Request):
+    source = _dataset_sample_path(request, dataset_id, item_id)
     image = await asyncio.to_thread(cv2.imread, str(source))
     if image is None:
         raise HTTPException(422, "Dataset sample cannot be decoded")
@@ -455,6 +472,68 @@ def get_model_asset(model_artifact_id: str, request: Request):
         return services(request).imported_assets.get_model(model_artifact_id).model_dump(mode="json", exclude={"local_root"})
     except (KeyError, ValueError) as exc:
         raise HTTPException(404, "Unknown imported model") from exc
+
+
+_ARTIFACT_LISTING_LIMIT = 200
+
+
+def _model_root(request: Request, model_artifact_id: str):
+    try:
+        asset = services(request).imported_assets.get_model(model_artifact_id)
+    except (KeyError, ValueError) as exc:
+        raise HTTPException(404, "Unknown imported model") from exc
+    return asset, Path(asset.local_root).resolve()
+
+
+def _suggest_family(relative_path: str, families: list[str]) -> str | None:
+    """Best family whose normalized name appears in the file's path (e.g. weights/YOLOv12-S/best.pt -> yolo)."""
+    text = "".join(ch for ch in relative_path.lower() if ch.isalnum())
+    matches = [family for family in families if "".join(ch for ch in family.lower() if ch.isalnum()) in text]
+    return max(matches, key=len) if matches else None
+
+
+@router.get("/assets/models/{model_artifact_id}/artifacts")
+def list_model_artifact_files(model_artifact_id: str, request: Request):
+    """Checkpoint files inside an imported model, with the built-in families that accept each one."""
+    asset, root = _model_root(request, model_artifact_id)
+    families = services(request).models.manifest.families
+    extensions = {extension for family in families.values() for extension in family.extensions}
+    registered = {item.relative_path: item for item in asset.registered_weights}
+    files = []
+    for path in sorted(root.rglob("*")) if root.is_dir() else [root]:
+        relative = path.relative_to(root).as_posix() if root.is_dir() else path.name
+        if not path.is_file() or path.suffix.lower() not in extensions or relative.startswith(".cache/") or "/." in f"/{relative}":
+            continue
+        compatible = sorted(name for name, family in families.items() if path.suffix.lower() in family.extensions)
+        entry = registered.get(relative)
+        files.append({"relative_path": relative, "size_bytes": path.stat().st_size, "families": compatible,
+                      "suggested_family": entry.family if entry else _suggest_family(relative, compatible),
+                      "weight_id": entry.weight_id if entry else None})
+        if len(files) >= _ARTIFACT_LISTING_LIMIT:
+            break
+    return {"model_artifact_id": model_artifact_id, "files": files, "truncated": len(files) >= _ARTIFACT_LISTING_LIMIT}
+
+
+@router.post("/assets/models/{model_artifact_id}/artifacts/register", status_code=201)
+async def register_model_artifact_file(model_artifact_id: str, payload: ModelArtifactWeightRequest, request: Request):
+    """Copy one explicitly chosen checkpoint into the weight store for a built-in adapter (no code is imported)."""
+    asset, root = _model_root(request, model_artifact_id)
+    source = (root / payload.relative_path).resolve() if root.is_dir() else root
+    if (root.is_dir() and root not in source.parents) or not source.is_file():
+        raise HTTPException(404, "Unknown artifact file")
+    existing = next((item for item in asset.registered_weights if (item.relative_path, item.family) == (payload.relative_path, payload.family)), None)
+    if existing is not None:
+        return existing.model_dump(mode="json")
+    try:
+        def save():
+            with source.open("rb") as handle:
+                return services(request).weights.save(handle, source.name, payload.family)
+        record = await asyncio.to_thread(save)
+    except (KeyError, ValueError, ModelRegistryError) as exc:  # unknown family, or an extension the family does not accept
+        raise HTTPException(422, str(exc)) from exc
+    entry = RegisteredWeight(relative_path=payload.relative_path, family=payload.family, weight_id=record.weight_id)
+    services(request).imported_assets.add_registered_weight(model_artifact_id, entry)
+    return entry.model_dump(mode="json")
 
 
 @router.post("/experiments", status_code=201)

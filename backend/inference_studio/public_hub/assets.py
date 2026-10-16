@@ -6,7 +6,7 @@ from pathlib import Path
 from inference_studio.durable import JsonDocumentStore
 
 from .integrity import tree_identity
-from .schemas import DatasetAsset, DatasetInspection, ExternalResource, ModelArtifact, ModelInspection, Provenance
+from .schemas import DatasetAsset, DatasetInspection, ExternalResource, ModelArtifact, ModelInspection, Provenance, RegisteredWeight
 
 
 class ImportedAssetRegistry:
@@ -52,3 +52,11 @@ class ImportedAssetRegistry:
 
     def get_model(self, identity: str) -> ModelArtifact:
         return ModelArtifact.model_validate(self.models.get(identity))
+
+    def add_registered_weight(self, identity: str, entry: RegisteredWeight) -> ModelArtifact:
+        """Record an explicitly chosen checkpoint; the first one also becomes the artifact's primary weight."""
+        asset = self.get_model(identity)
+        asset.registered_weights = [item for item in asset.registered_weights if (item.relative_path, item.family) != (entry.relative_path, entry.family)] + [entry]
+        asset.weight_id = asset.weight_id or entry.weight_id
+        self.models.put(identity, asset.model_dump(mode="json"))
+        return asset
