@@ -9,3 +9,4 @@ numpy>=2.2.1,<3
 opencv-python-headless>=4.10.0.84,<5
 psutil>=6,<8
 nvidia-ml-py>=12,<14
+-r requirements-public-hub.txt

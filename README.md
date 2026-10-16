@@ -1,390 +1,590 @@
-# Vision Inference Studio v0.5
+# Vision Inference Studio
 
-A local, node-based computer-vision inference workbench built independently with React Flow and FastAPI. Compose a typed DAG, upload assets and model weights through opaque IDs, validate the workflow, and run image or sequential video inference while results stream back over WebSocket.
+A local, node-based computer-vision inference workbench. You build a typed workflow graph on a React Flow canvas, upload images, videos and model weights, then run image or frame-by-frame video inference on your own GPU. Results stream back live over WebSocket. Vision Inference Studio runs as a desktop app (Electron) or as a FastAPI backend with a browser UI.
 
-> Status: v0.5 adds concurrency-safe cached models, run-scoped cleanup, metadata-driven chaiNNer values, persisted package settings, lazy streams, and a GPU-preserving DINOv3 feature runtime with normalize, difference, feature-preview, and heatmap-preview nodes. Existing v0.4 prompt models, image workflows, and the dedicated file-video engine remain compatible.
+Current version: **0.6.0**. Linux x86_64 packages for every release are attached to the [GitHub releases](../../releases).
 
-## Screenshots
+![Grounding DINO text-prompt detection on an image](docs/images/studio-image-grounding-dino.png)
 
-![Vision Inference Studio running Grounding DINO text-prompt detection on an image](docs/images/studio-image-grounding-dino.png)
+---
 
-*Image workflow: Image → Model (official Grounding DINO, text prompt `person, tie`) → Detection Preview. The Inspector shows the model and prompt settings; Live Output shows the labelled boxes with timing and GPU memory (RTX 4050, FP16).*
+## Contents
 
-![Vision Inference Studio streaming SAM 2.1 segmentation over a video](docs/images/studio-video-sam2.png)
+1. [What it does](#what-it-does)
+2. [Releases and packages](#releases-and-packages)
+3. [Install the desktop app (.deb)](#install-the-desktop-app-deb)
+4. [Install the portable bundle (.tar.gz / .zip)](#install-the-portable-bundle-targz--zip)
+5. [Development setup](#development-setup)
+6. [Using the studio](#using-the-studio)
+7. [Feature runtime: change detection with DINOv3 and RF-DETR](#feature-runtime-change-detection-with-dinov3-and-rf-detr)
+8. [Public Hub, benchmarks, experiments and recipes (v0.6)](#public-hub-benchmarks-experiments-and-recipes-v06)
+9. [Supported models](#supported-models)
+10. [Node reference](#node-reference)
+11. [Architecture](#architecture)
+12. [Configuration reference](#configuration-reference)
+13. [HTTP and WebSocket API](#http-and-websocket-api)
+14. [Building the packages](#building-the-packages)
+15. [Testing](#testing)
+16. [Security model](#security-model)
+17. [Repository layout](#repository-layout)
+18. [Known limitations](#known-limitations)
 
-*Video workflow: Video → Model (SAM 2.1 base-plus, box prompt) → Video Preview, captured mid-run. Each 1080p frame is segmented at about 13 FPS; Pause / Resume / Stop act at frame boundaries.*
+---
+
+## What it does
+
+Vision Inference Studio is an **inference experimentation environment**. It runs the same model and fixed images through different preprocessing, inference and postprocessing settings. It measures each result, shows the visual output side by side, and lets you promote the configuration that works. It is not a training tool and not a production annotation queue.
+
+```text
+model + preprocessing + inference + postprocessing
+                         │
+                  immutable benchmark
+                         │
+             Recipe A ───┼─── Recipe B ─── Recipe C
+                         │
+            typed output + latency / VRAM / evaluation
+                         │
+                    compare visually
+                         │
+                  promote pinned recipe ──► Auto Annotation Studio
+```
+
+**Main capabilities:**
+
+- **Visual workflow graph:** typed ports, a metadata-driven inspector, validation before every run, and live node status (waiting, loading, running, success or error).
+- **Image and video inference:** sequential video decoding, configurable frame stride, warm-up frames, and Pause / Resume / Stop at frame boundaries. Latency distributions are recorded for every stage.
+- **Model families:** YOLO, RF-DETR, DINOv3, generic ONNX, official Grounding DINO, SAM, SAM 2/2.1 and SAM 3.
+- **Feature runtime:** DINOv3, RF-DETR v2.2 and RF-DETR Architecture B feature maps, with difference, normalisation, activation-XOR and Mahalanobis change heatmaps.
+- **chaiNNer node import:** about 160 image-processing nodes from a local chaiNNer source tree, run in memory with lazy sequences.
+- **Public Hub (v0.6):** discover and import datasets and models from Hugging Face, Roboflow Universe and Kaggle, inspect them, freeze benchmarks, run multi-workflow experiments, and promote immutable recipes.
+- **GPU-aware runtime:**
+  - a model cache keyed by an immutable identity, so each checkpoint loads once;
+  - serialised inference;
+  - CUDA-synchronised timing;
+  - live CPU, RAM, GPU and VRAM metrics in the header.
+
+---
+
+## Releases and packages
+
+Each version is a git tag with a GitHub release. Model weights are **not** included in any package; you upload them in the app.
+
+| Tag | Highlights | Assets |
+|---|---|---|
+| **v0.6.0** | Public Resource Hub (Hugging Face / Roboflow / Kaggle), API Keys page, durable downloads, dataset/model inspection, immutable benchmarks, experiments, comparisons, recipe promotion. Packaging fix: `requirements-public-hub.txt` is now shipped and hashed. | `.deb`, portable `.zip` |
+| **v0.5.0** | Immutable `ModelKey` and per-call requests, `ExecutionScope` cleanup, explicit runtime values, lazy chaiNNer streams, DINOv3 spatial features, `FeatureStore`, RF-DETR v2.2 and Architecture B feature providers, Activation XOR, Mahalanobis difference, geometry store | `.deb`, portable `.zip` |
+| **v0.4.0** | SAM, SAM 2/2.1, SAM 3, official Grounding DINO, chaiNNer node import, self-contained desktop build with bundled Python 3.12.15 | `.deb`, portable `.tar.gz` |
+| **v0.3.0** | Electron desktop app with a private runtime installer, portable install/uninstall scripts, resizable live preview | `.deb`, portable `.tar.gz` |
+| **v0.2.0** | Real video inference with benchmarks; first Linux packages | `.deb`, portable `.tar.gz` |
+| **v0.1.0** | Node canvas, typed workflow validation and execution, real YOLO / RF-DETR / DINOv3 / ONNX image inference | source only |
+
+Every asset has a `SHA256SUMS` file in the same release. Verify downloads with `sha256sum -c SHA256SUMS --ignore-missing`.
+
+---
+
+## Install the desktop app (.deb)
+
+**Requirements:**
+- 64-bit Linux with glibc 2.28+ (Ubuntu 20.04+ / Debian 11+)
+- about 20 GB free disk and 16 GB RAM (recommended)
+- optional: an NVIDIA driver 525+ for CUDA
+
+```bash
+sha256sum -c SHA256SUMS --ignore-missing
+sudo apt install ./vision-inference-studio_0.6.0_amd64.deb
+vision-inference-studio            # or launch it from the applications menu
+```
+
+The app ships its own Python 3.12.15, so no system Python is needed. On first launch, click **Install Runtime**. It creates a private virtual environment in `~/.local/share/vision-inference-studio/runtime/venv` and installs PyTorch (CUDA 12.1) plus the inference packages from prebuilt wheels. That is about a 4 GB download and about 10 GB on disk. Use **Runtime → Repair Runtime** or **Reinstall Runtime** in the menu if it ever breaks; **Runtime → Status** shows the current state, and **Help → Open Logs Folder** opens the logs.
+
+**Where the desktop app keeps data:**
+
+| Path | Contents |
+|---|---|
+| `/usr/lib/vision-inference-studio/` | Application (read-only) |
+| `~/.local/share/vision-inference-studio/` | Runtime, weights, workflows, workspace, benchmarks, logs |
+| `~/.config/vision-inference-studio/.env` | Optional secrets (`HF_TOKEN`, provider keys) |
+| `~/.local/share/vision-inference-studio/logs/` | `backend.log`, `runtime-setup.log`, `electron.log` |
+
+> **Launching from a VS Code terminal:** VS Code sets `ELECTRON_RUN_AS_NODE`, which stops Electron from opening a window. Run `env -u ELECTRON_RUN_AS_NODE vision-inference-studio` instead.
+
+### Using an existing Python environment instead of the private runtime
+
+If you already have a working environment (Python 3.10+ with the packages from `requirements-desktop.txt` and `requirements-public-hub.txt`), you can point the app at it and skip the runtime download.
+1. Link the runtime folder to your environment:
+   ```bash
+   R=~/.local/share/vision-inference-studio/runtime
+   mkdir -p "$R" && ln -sfn /path/to/your/venv "$R/venv"
+   ```
+2. Write `$R/runtime-version.json` with the installed version and the requirements hash:
+   ```bash
+   A=/usr/lib/vision-inference-studio/resources
+   HASH=$(VIS_APP_ROOT=$A bash $A/packaging/linux/setup-runtime.sh --print-requirements-hash | tail -1)
+   cat > "$R/runtime-version.json" <<EOF
+   {"app_version": "0.6.0", "requirements_hash": "$HASH", "python_version": "3.12",
+    "python_executable": "/path/to/your/venv/bin/python", "created_at": "$(date -Is)", "cuda": {"available": true}}
+   EOF
+   ```
+3. Confirm the environment has everything:
+   ```bash
+   cd /usr/lib/vision-inference-studio/resources
+   PYTHONPATH=backend "$R/venv/bin/python" -m inference_studio.runtime_check --json
+   ```
+
+The backend runs as `runtime/venv/bin/python -m uvicorn inference_studio.main:app` with `PYTHONPATH` set to the packaged backend, so the app itself does not need to be installed into your environment.
+
+Clicking **Install / Repair Runtime** later is safe for your environment. The script sees a different interpreter, removes only the symlink, and builds a separate private runtime. Each app upgrade changes `app_version`, so after upgrading, update the metadata file again.
+
+---
+
+## Install the portable bundle (.tar.gz / .zip)
+
+Both portable formats need no root access.
+
+**v0.5.0 and later (`.zip`)** contain the unpacked app folder. Run it in place:
+
+```bash
+unzip vision-inference-studio-0.6.0-linux-x64.zip
+"./Vision Inference Studio-linux-x64/vision-inference-studio"
+```
+
+**v0.2.0–v0.4.0 (`.tar.gz`)** contain an installer:
+
+```bash
+tar -xzf vision-inference-studio-0.4.0-linux-x64.tar.gz
+cd vision-inference-studio-0.4.0-linux-x64 && ./install.sh     # installs under ~/.local, adds a menu entry
+```
+
+In the `.tar.gz` bundles, `uninstall.sh` removes the application. Either way, the first launch offers **Install Runtime**, exactly as the `.deb` does. Your data under `~/.local/share/vision-inference-studio/` is kept unless you delete it.
+
+---
+
+## Development setup
+
+### Backend
+
+Use Python 3.10+ (3.12 is tested) in one virtual environment:
+
+```bash
+python3.12 -m venv ~/venv
+~/venv/bin/pip install -r requirements-dev.txt -r requirements-runtimes.txt -r requirements-public-hub.txt
+# Prompt models (official Grounding DINO + CLIP tokenizer for SAM 3), built from pinned source commits:
+~/venv/bin/pip install --no-deps --no-build-isolation -r requirements-prompt-models.txt
+# chaiNNer Standard node dependencies:
+~/venv/bin/pip install -r requirements-chainner-standard.txt
+
+PYTHONPATH=backend ~/venv/bin/uvicorn inference_studio.main:app --host 0.0.0.0 --port 8000
+```
+
+- Install the PyTorch wheel that matches your NVIDIA driver. The lock file pins `torch==2.5.1+cu121`.
+- `requirements.txt` holds the API/graph baseline. The heavy ML packages live in `requirements-runtimes.txt`, so graph development and unit tests don't need them.
+- Interactive API docs: `http://localhost:8000/docs`.
+
+### Frontend
+
+The frontend needs Node 20+:
+
+```bash
+cd frontend
+npm ci
+npm run dev -- --host 0.0.0.0        # http://localhost:5173, proxies /api to :8000
+npm run build                        # production bundle in frontend/dist
+```
+
+Override the API address with `VITE_API_URL`. If Node isn't installed on the host, build with Docker: `docker run --rm -v "$PWD/frontend:/app" -w /app node:22-alpine npm run build`. Docker leaves root-owned files in `frontend/dist` and `node_modules/.vite-temp`, so afterwards either `chown` them back or build with `vite build --configLoader native --outDir <dir>`.
+
+### Secrets
+
+Copy `.env.example` to `.env`; it is git-ignored. You can also use the **API Keys** page, which validates a credential before writing it atomically with mode `0600`. Secret values are never returned to the browser.
+
+```bash
+cp .env.example .env    # HF_TOKEN, ROBOFLOW_API_KEY, KAGGLE_API_TOKEN or KAGGLE_USERNAME/KAGGLE_KEY
+```
+
+`HF_TOKEN` is needed for the gated `facebook/sam3` checkpoint and for Grounding DINO's `bert-base-uncased` download on first load.
+
+### chaiNNer nodes
+
+Point the backend at a local chaiNNer source tree with `export VIS_CHAINNER_SRC_DIR=/path/to/chainner/src`. Development builds also detect a sibling `src/` folder. The import report is written to `workspace/reports/chainner-node-import.json`. Nodes whose optional dependencies (NCNN, TensorRT, some PyTorch restorations) are missing stay visible and show the exact import error.
+
+### Docker
+
+Docker runs the graph, API and UI:
+
+```bash
+docker compose up --build -d
+# GPU inference image: docker build --build-arg INSTALL_RUNTIMES=1 -f backend/Dockerfile .
+```
+
+The NVIDIA container runtime and a CUDA-compatible PyTorch wheel depend on the host, so they are never assumed.
+
+---
+
+## Using the studio
+
+1. Drag **Image** or **Video** from the Node Library (or double-click the canvas) and upload an asset.
+2. Add the universal **Model** node. Choose family, then version, then size; dependent fields reset when a parent field changes.
+3. Upload a compatible weight file. The browser only ever receives an opaque weight ID, never a server path.
+4. Set device, precision and thresholds. The inspector shows only the controls a family uses (`controls` in `config/models.yaml`).
+   - **Grounding DINO:** comma-separated text prompt, e.g. `skip car, truck, person`.
+   - **SAM / SAM 2:** point (`x,y`) or box (`x1,y1,x2,y2`) prompt in source-image pixels.
+   - **SAM 3:** a text prompt (all instances of each concept) or a point/box prompt (one object).
+5. Connect a matching preview node: Detection, Segmentation, Feature, Heatmap, Tensor or Video.
+6. Click **Validate**, then **Run**. Active edges animate, nodes show their state, and results stream into the **Live Output** dock.
+7. Toggle **Original** / **Prediction**, and read the preprocess / inference / postprocess / total timings, object count, and GPU allocated / reserved / peak memory.
+8. **Video:** set `frame_stride` (1 = every frame, 5 = frames 0, 5, 10, …), warm-up frames and an optional benchmark-frame limit. The model loads once and is reused for every frame. Pause / Resume / Stop act at frame boundaries.
+9. Resize **Live Output** with its top grip and side divider; the size persists across restarts.
+
+Example workflows are in `workflows/examples/`. Replace their placeholder asset and weight IDs with the IDs you get from uploads.
+
+![SAM 2.1 segmentation streaming over a video](docs/images/studio-video-sam2.png)
+
+---
+
+## Feature runtime: change detection with DINOv3 and RF-DETR
+
+Feature nodes compare a **reference** image with a **current** image in a model's feature space. The output is a continuous change heatmap.
+
+```text
+Image (reference) ─► Feature Extract ─┐
+                                      ├─► Feature Difference / Activation XOR / Mahalanobis ─► Heatmap Preview
+Image (current)   ─► Feature Extract ─┘
+```
+
+**Feature providers:**
+
+| Provider | Model | Input | Stage | Feature grid |
+|---|---|---|---|---|
+| `dinov3` | DINOv3 ViT (Transformers) | processor size | `last_hidden_state` | patch grid × C (CLS/register tokens removed) |
+| `rfdetr-v2.2` | `RFDETRLargeDeprecated` | 560 × 560 | `fine_80` | 80 × 80 × 384 |
+| `rfdetr-v2.2` | `RFDETRLargeDeprecated` | 560 × 560 | `coarse_20` | 20 × 20 × 384 |
+| `rfdetr-arch-b` | `RFDETRSegLarge`, patch 12 | 504 × 504 | `backbone_42` | 42 × 42 × 256 |
+
+**Comparison operations:**
+
+| Node | Works with | Output |
+|---|---|---|
+| Feature Difference | any two compatible features | `raw` / `absolute` delta feature and an `l2` / `cosine` heatmap |
+| Feature Normalize | any feature | new artifact, channel-wise L2 (or `none`) |
+| RF-DETR Activation XOR | `rfdetr-v2.2` only | per-token fraction of channels whose activation (above the reference's 90th-percentile threshold) flipped. Continuous; no threshold is applied |
+| Mahalanobis Feature Difference | `rfdetr-arch-b` only | squared Mahalanobis distance of `current − reference` under a frozen clear-scene geometry (μ [256], Cholesky [256,256]), solved in float64 without an explicit inverse. τ is stored but **never applied** |
+
+**Rules the runtime enforces:**
+
+- **Strict compatibility:** features are compared only when their signatures match exactly: provider, version, variant, stage, checkpoint SHA-256, input size, stride, preprocessing and shape. Otherwise the run fails with `FeatureSpaceMismatch` ("Cannot compare: …"), naming both feature spaces. Grids are never resized to fit.
+- **Provider checks at validation:** the validator rejects XOR on non-v2.2 features and Mahalanobis on non-Architecture-B features before a run starts (`incompatible_feature_provider`).
+- **One load per model:** the feature model cache key is family / version / variant / weight / device / precision. It contains no stage, threshold or reference/current role, so reference and current share one loaded model across stages.
+- **One Architecture B forward:** each image gets a single backbone forward. Its `srcs/masks/poss` are kept, so a semantic branch reuses them without a second backbone pass.
+- **Tensors stay on the backend:** they stay on their device in the `FeatureStore` (`feat_<uuid>` IDs, refcounted by planner consumer counts, released when a run ends). API and WebSocket payloads carry only IDs, shapes and statistics. Store limits come from `VIS_FEATURE_STORE_MAX_ENTRIES` / `_MAX_BYTES`, and a full store raises `FeatureStoreCapacityExceeded`; nothing is evicted silently.
+- **Display-only interpolation:** heatmaps are interpolated only when rendered for display.
+
+**Mahalanobis geometries** live in `VIS_GEOMETRIES_DIR`, outside the repo, and are selected by opaque ID (`geo_<name>`); clients never send file paths. To import one:
+
+```bash
+PYTHONPATH=backend python -m inference_studio.features.import_geometry \
+  --id geo_archb_b2_frozen --weight-id <architecture-b weight id> \
+  --mu mu_delta.npy --sigma sigma.npy \
+  --corpus "<calibration corpus>" --method "<fitting method>" --tau-preset 589.3056640625
+```
+
+The source-of-truth RF-DETR code is vendored verbatim in `backend/inference_studio/features/extractors/vendor/`, with pinned SHA-256 prefixes checked by tests. The real-model acceptance report, including bit-exact parity with the original modules, is in [`docs/acceptance/rfdetr-feature-runtime/REPORT.md`](docs/acceptance/rfdetr-feature-runtime/REPORT.md).
+
+---
+
+## Public Hub, benchmarks, experiments and recipes (v0.6)
+
+1. **API Keys:** configure Hugging Face, Roboflow or Kaggle credentials. Each one is validated before it is saved.
+2. **Public Hub:** search datasets and models. Dataset cards show a lazy preview: a first-row sample for Hugging Face, an annotated sample for Roboflow, the thumbnail for Kaggle. Check the license and exact source identity, then choose **Download & register**.
+3. **Downloads:** jobs are file-backed, survive a closed browser or a backend restart, and can be cancelled or retried. Completed dataset imports show sample thumbnails with dimensions and classes.
+4. **Assets:** inspection status is one of `READY`, `PARTIAL`, `ADAPTER_REQUIRED`, `AMBIGUOUS`, `UNSUPPORTED` or `INVALID`.
+5. **Benchmarks:** freeze an immutable random, stratified or manual subset of a registered dataset.
+6. **Experiments:** pick one benchmark and two or more saved canvas workflows. Every variant runs through the normal execution engine on identical items. Operational metrics and side-by-side previews are persisted; accuracy metrics appear only when compatible ground truth exists.
+7. **Recipes:** promote the winning variant to an immutable recipe that pins the workflow, benchmark, model/weight, hashes and runtime requirements. Auto Annotation Studio consumes only promoted recipes (`POST /api/v1/recipes/execute`).
+
+**Provider coverage:**
+- **Hugging Face:** datasets and models, at resolved revisions.
+- **Roboflow Universe:** versioned datasets with format-aware export. No model artifacts are claimed.
+- **Kaggle:** datasets, and model instances where the API exposes an `owner/model/framework/variation[/version]` identity.
+
+Public datasets remain experiment assets. Moving one into production data is an explicit step in Auto Annotation.
+
+The design decisions are recorded in [`docs/adr/`](docs/adr/): provider interface, server-side secrets, download ≠ executability, no remote code, immutable benchmarks, identical experiment inputs, versioned recipes, production sees promoted recipes only, and resource provenance.
+
+---
+
+## Supported models
+
+| Family | Versions | Sizes | Result | Runtime |
+|---|---|---|---|---|
+| YOLO | v8, v11, v12 | n, s, m, l, x, custom | detections | Ultralytics |
+| RF-DETR | v1 | nano, small, medium, base, large | detections | `rfdetr` |
+| DINOv3 | official | vit-s, vit-b, vit-l | feature map | Transformers / PyTorch |
+| Grounding DINO | official | tiny (Swin-T OGC), base (Swin-B) | text-prompt detections | IDEA-Research `groundingdino` |
+| Segment Anything | v1 | vit-b, vit-l, vit-h | point / box segmentation | Transformers / PyTorch |
+| Segment Anything 2 | 2.1, 2.0 | tiny, small, base-plus, large | point / box segmentation | Ultralytics |
+| Segment Anything 3 | 3.0 | base | text-concept and point / box segmentation | Ultralytics |
+| Generic ONNX | generic | custom | tensor | ONNX Runtime |
+
+**Checkpoint notes:**
+
+- **SAM (v1):** Hugging Face `facebook/sam-vit-*` safetensors or `.pth`, loaded data-only (`weights_only=True`).
+- **Grounding DINO:** `groundingdino_swint_ogc.pth` (tiny) or `groundingdino_swinb_cogcoor.pth` (base). A checkpoint selected with the wrong size is rejected. Without compiled CUDA ops, it falls back to PyTorch deformable attention, which gives the same result more slowly.
+- **SAM 2 / 2.1:**
+  - accepts Meta `sam2.1_hiera_{tiny,small,base_plus,large}.pt` (or `sam2_hiera_*.pt`) and the Ultralytics `sam2.1_{t,s,b,l}.pt`;
+  - the state dict loads strictly, so a mismatched version or size fails.
+- **SAM 3:**
+  - Checkpoint: `sam3.pt` from the gated `facebook/sam3` repository (3.45 GB).
+  - Resolution: text prompts run at 1008 px; point/box prompts at 644 px, which keeps them within a 6 GB GPU.
+  - Switching prompt mode reloads the model (about 10 s).
+  - Loading needs about 6–7 GB of system RAM.
+- **RF-DETR large:** the legacy `rf-detr-large.pth` is detected as `RFDETRLargeDeprecated`. It works, with an upstream warning. Use `rfdetr>=1.4,<1.7`; 1.11+ rejects that checkpoint.
+- **Upload limit:** 5 GiB by default (`VIS_MAX_UPLOAD_BYTES`).
+
+---
+
+## Node reference
+
+| Category | Node | Inputs → outputs |
+|---|---|---|
+| Sources | Image, Video | asset ID → `image` / `video` |
+| Models | Model (universal) | `image` or `video` → registry-defined result |
+| Processing | Resize, Crop, Threshold | `image` → `image` |
+| Features | Feature Extract | `image` → `feature_map` (provider-dependent stages) |
+| Features | Feature Normalize | `feature_map` → `feature_map` |
+| Features | Feature Difference | reference + current → delta `feature_map` + `heatmap` |
+| Features | RF-DETR Activation XOR | reference + current (v2.2) → `heatmap` |
+| Features | Mahalanobis Feature Difference | reference + current (Architecture B) → `heatmap` |
+| Outputs | Image, Detection, Segmentation, Feature, Heatmap, Tensor, Video Preview | typed result → rendered preview |
+| chaiNNer | Registry-derived Standard / PyTorch / ONNX / NCNN / TensorRT / External nodes | native typed values, including lazy sequences |
+
+The browser fetches node definitions from `GET /api/v1/nodes` and renders them generically. A field can declare `options_by` to change its options based on another field; for example, Feature Extract stages depend on the provider.
+
+---
 
 ## Architecture
 
 ```text
-React + Zustand
-      │ node/edge/config JSON
-      ▼
-FastAPI ── asset/weight stores (opaque IDs only)
+React + Zustand ── node / edge / config JSON
       │
-      ▼
-WorkflowValidator ── types, ports, config, assets, weights, DAG
+FastAPI ── asset / weight / geometry stores (opaque IDs only)
       │
-      ▼
+WorkflowValidator ── types, ports, config, assets, weights, provider compatibility, DAG
+      │
 ExecutionPlan → ExecutionEngine + ExecutionScope → WebSocket events
-            │                 │
-            │                 ├── ChainnerNodeExecutor → typed lazy StreamValue
-            │                 │                    regular / generator / transformer / collector
-            │                 └── FeatureStore → normalize / difference / heatmap
-                              │
-                              ▼
-                ModelManager immutable-key cache
-                              │
-                    AdapterRegistry / ModelAdapter
-                    ┌─────────┼─────────┬──────────┬────────────────┬──────┐
-                  YOLO     RF-DETR    DINOv3     ONNX       Grounding DINO  SAM / SAM 2 / SAM 3
-                    └─────────┼─────────┴──────────┴────────────────┴──────┘
-                              ▼
-             InferenceResult or FeatureArtifact
-                              │
-                              ▼
-                       RendererRegistry
-                 detection / segmentation / feature / tensor
+      │              ├── ChainnerNodeExecutor → typed lazy StreamValue
+      │              └── FeatureStore → normalize / difference / XOR / Mahalanobis / heatmap
+      │
+ModelManager (immutable-key cache, load lock, inference gate)
+      ├── AdapterRegistry: YOLO · RF-DETR · DINOv3 · ONNX · Grounding DINO · SAM · SAM 2 · SAM 3
+      └── FeatureExtractorRegistry: dinov3 · rfdetr-v2.2 · rfdetr-arch-b
+      │
+InferenceResult / FeatureArtifact → RendererRegistry (detection · segmentation · feature · tensor)
 
-Video asset → VideoReader → frame scheduler → cached ModelManager handle
-                                      │
-                                      ▼
-                         DetectionRenderer → bounded JPEG slots
-                                      │
-                                      ▼
-                          latest-frame WebSocket delivery
+Video asset → VideoReader → frame scheduler → cached model handle → renderer → 10 rotating JPEG slots → latest-frame WebSocket
 ```
 
-The five boundaries are explicit:
+**Boundaries:**
 
-- **Nodes** describe typed ports and parameters; the browser fetches them from `GET /api/v1/nodes`.
-- **Adapters** are the only model-specific layer and expose load, preprocess, infer, postprocess, unload, and metadata operations.
-- **Execution** validates and topologically runs a backend-owned DAG. Canvas position never affects order.
-- **Renderers** convert standardized results into previews. Adapters never draw.
-- **Frontend** knows nodes, ports, edges, configuration, and status—never PyTorch, CUDA tensors, or model internals.
+- **Nodes** declare typed ports and config; the order of execution comes from the DAG, never from canvas position.
+- **Adapters** are the only model-specific code (load, preprocess, infer, postprocess, unload, metadata). Their runtime imports are lazy, so a missing runtime disables only that family.
+- **Execution:**
+  - `ModelConfig` is split into an immutable `ModelKey` (identity) and a per-call `InferenceRequest` (thresholds, prompts), so a cached model never leaks one run's settings into another.
+  - Every run owns an `ExecutionScope`, which closes streams, callbacks and feature artifacts in LIFO order on completion, error or cancel.
+- **Renderers** turn standard results into previews; adapters never draw.
+- **Frontend** knows nodes, ports, edges, config and status, never tensors or CUDA.
 
-## What changed in v0.5
+**Desktop app:**
+- Electron starts the backend on a random loopback port with a per-session API token (`VIS_API_TOKEN`) and serves the built frontend.
+- The backend stops when the app exits (`VIS_PARENT_PID`).
 
-- `ModelConfig` remains the workflow/API shape, but execution splits it into immutable `ModelKey` identity and per-call `InferenceRequest` settings. Cached `LoadedModel` objects contain only identity/checkpoint data. A load lock prevents duplicate deserialization, while a separate adapter-sized semaphore (default `1`) serializes unsafe inference handles without leaking confidence or prompt state.
-- Every run owns an `ExecutionScope`. Node callbacks execute LIFO when that node ends; chain callbacks, open streams, and run-owned feature artifacts execute/release LIFO when the workflow completes, errors, or is cancelled. Cached model handles remain reusable across runs.
-- Runtime values explicitly distinguish images, tensors, features, heatmaps, streams, video, and model results. `ChainnerValueAdapter` consults the declared Navi port type, so a 2D/3D NumPy array is no longer assumed to be an image.
-- chaiNNer generators, regular stream mapping, and transformers are lazy. Collectors consume one item at a time, stream length is retained when supplied, cancellation/pause checks occur between items, and non-replayable fan-out is rejected with `non_replayable_stream_fanout` instead of hidden materialization.
-- chaiNNer package defaults are discovered from the imported registry. User overrides persist in `VIS_CONFIG_DIR/chainner-settings.json`, are editable from the header settings dialog, and are deep-snapshotted at run start.
-- DINOv3 now returns a spatial `[Hf, Wf, C]` `FeatureArtifact`. Patch tokens are separated from CLS/register tokens using processed dimensions and model patch size. The full tensor stays on its backend device; WebSocket/API payloads contain only an opaque feature ID, shape/device/dtype/memory metadata, summary statistics, and inference metrics.
-- `Feature Normalize` supports `none` and channel-wise L2 normalization. `Feature Difference` supports raw, absolute, L2, and cosine modes after exact feature-space compatibility checks. Raw/L2/cosine keep `delta = current - reference`; absolute emits the absolute delta. Heatmaps are interpolated only while rendering.
-- Feature storage is bounded by `VIS_FEATURE_STORE_MAX_ENTRIES` and `VIS_FEATURE_STORE_MAX_BYTES`. Planner consumer counts drive reference release, and the run scope guarantees final cleanup. `GET /api/v1/features/stats` exposes counts and CPU/GPU bytes, never tensors.
+---
 
-## Repository tree
+## Configuration reference
 
-```text
-vision-inference-studio/
-├── backend/
-│   ├── Dockerfile
-│   ├── inference_studio/
-│   │   ├── adapters/          # YOLO/RF-DETR/DINOv3/ONNX/Grounding DINO/SAM/SAM 2/SAM 3
-│   │   ├── api/               # versioned HTTP and WebSocket routes
-│   │   ├── assets/            # secure asset records/storage
-│   │   ├── chainner/          # dynamic registry/type/image/execution compatibility
-│   │   ├── features/          # feature schemas/store/ops/visualization public API
-│   │   ├── graph/             # schema, validation, planning, execution, persistence
-│   │   ├── models/            # manifest, registry, weights, lifecycle manager
-│   │   ├── nodes/             # definitions, registry, runtime values
-│   │   ├── renderers/         # detection, feature, tensor, registry
-│   │   ├── results/           # standardized Pydantic results/metrics
-│   │   ├── runtime/           # explicit values, streams, artifacts, execution scope
-│   │   ├── video/             # sequential reader and benchmark collector
-│   │   ├── config.py
-│   │   └── main.py
-│   └── tests/
-├── config/models.yaml
-├── frontend/
-│   ├── src/
-│   │   ├── api/
-│   │   ├── components/{canvas,nodes,preview,properties,sidebar}/
-│   │   ├── store/
-│   │   ├── types/
-│   │   ├── App.tsx
-│   │   └── styles.css
-│   ├── Dockerfile
-│   └── package.json
-├── weights/{yolo,rfdetr,dinov3,grounding-dino,sam,sam2,sam3,onnx}/
-├── workflows/examples/
-├── workspace/{assets,previews,reports,chainner-storage}/
-├── docker-compose.yml
-├── Makefile
-├── pyproject.toml
-├── requirements.txt
-├── requirements-chainner-standard.txt
-├── requirements-prompt-models.txt
-└── requirements-runtimes.txt
-```
+Variables are read from the environment and from `.env` (`VIS_ENV_FILE` points elsewhere). Variables already set in the environment take precedence.
 
-Runtime uploads, generated previews, locally saved workflows, virtual environments, and model weights are git-ignored.
-
-## Dependencies
-
-Backend baseline: Python 3.10+, FastAPI, Pydantic 2, Uvicorn, OpenCV headless, NumPy, httpx, PyYAML, multipart upload support, and WebSockets.
-
-Optional inference bundle: PyTorch, Ultralytics, ONNX Runtime GPU, RF-DETR, Transformers, and Safetensors. Transformers provides the SAM (v1) and DINOv3 runtime APIs; Ultralytics runs YOLO, SAM 2/2.1 and SAM 3. `requirements-prompt-models.txt` adds the official [IDEA-Research Grounding DINO](https://github.com/IDEA-Research/GroundingDINO) package and the CLIP tokenizer SAM 3 needs (pinned commits, built from source). They are isolated in `requirements-runtimes.txt` so API/graph development and unit tests do not force several gigabytes of ML packages onto every machine.
-
-Local chaiNNer Standard dependencies are listed in `requirements-chainner-standard.txt`. NCNN, TensorRT, and other heavy optional packages are deliberately not installed automatically. Missing optional packages make affected nodes visibly unavailable without preventing Vision or Standard nodes from loading.
-
-Frontend: React 18, TypeScript, Vite, `@xyflow/react`, Zustand, Radix Tooltip, and Lucide icons.
-
-## Local setup
-
-Backend (this workstation uses the shared environment requested for the project):
-
-```bash
-cd vision-inference-studio
-PYTHONPATH=backend /home/avinash/venv/bin/uvicorn \
-  inference_studio.main:app --host 0.0.0.0 --port 8000
-```
-
-Prompt models (Grounding DINO, SAM 2, SAM 3) on top of the runtime bundle:
-
-```bash
-/home/avinash/venv/bin/pip install --no-deps --no-build-isolation -r requirements-prompt-models.txt
-```
-
-Grounding DINO installs without a CUDA toolkit; when its compiled ops are absent the adapter runs the package's PyTorch multi-scale deformable attention on the GPU and adapts its BERT wrapper to Transformers 5.
-
-Hugging Face access (gated `facebook/sam3`, and the `bert-base-uncased` text encoder Grounding DINO downloads on first load) uses a token in a git-ignored `.env` at the project root, which the backend loads at startup without overriding variables already set (`VIS_ENV_FILE` points elsewhere):
-
-```bash
-echo 'HF_TOKEN=hf_...' > .env && chmod 600 .env
-```
-
-Point the backend at the extracted chaiNNer source without embedding a workstation-specific path in application code:
-
-```bash
-export VIS_CHAINNER_SRC_DIR=/path/to/local/chainner/src
-/home/avinash/venv/bin/python -m pip install -r requirements-chainner-standard.txt
-```
-
-When `VIS_CHAINNER_SRC_DIR` is unset, development builds also detect a sibling `src/` directory. Discovery writes its full compatibility record to `workspace/reports/chainner-node-import.json`.
-
-For a fresh machine, create a Python 3.10+ environment, install `requirements-dev.txt` and `requirements-runtimes.txt`, then substitute that environment's Python/Uvicorn paths. Use the PyTorch wheel appropriate for the installed CUDA driver.
-
-Frontend (Node 20+):
-
-```bash
-cd vision-inference-studio/frontend
-npm ci
-npm run dev -- --host 0.0.0.0
-```
-
-On this workstation, where Node is provided by Docker, the exact production-build and preview commands are:
-
-```bash
-cd vision-inference-studio
-docker run --rm -v "$PWD/frontend:/app" -w /app node:22-alpine npm run build
-/home/avinash/venv/bin/python -m http.server 5174 \
-  --bind 127.0.0.1 --directory frontend/dist
-```
-
-Open `http://localhost:5173` for Vite development or `http://127.0.0.1:5174` for the production preview above. The default API address is `http://<browser-host>:8000`; override it with `VITE_API_URL` at build/dev time.
-
-Docker baseline (graph/API/UI; build with runtime packages separately for GPU inference):
-
-```bash
-docker compose up --build -d
-```
-
-The backend Dockerfile supports `--build-arg INSTALL_RUNTIMES=1`. NVIDIA container runtime and a CUDA-compatible PyTorch wheel are host-specific and deliberately not silently assumed.
-
-## Using the studio
-
-1. Drag **Image** or **Video** from the library (or double-click the canvas), select it, and upload an asset.
-2. Add the single universal **Model** node. Choose family → version → size; incompatible downstream fields reset when family/version changes.
-3. Upload a compatible weight. The browser receives an internal ID, never a server path.
-4. Choose device, precision, and confidence. Grounding DINO also requires a comma-separated text prompt such as `skip car, truck, person`. SAM and SAM 2 require either a point prompt (`x,y`) or box prompt (`x1,y1,x2,y2`) in source-image pixels. SAM 3 accepts a text prompt (every instance of each comma-separated concept, labeled by concept) or a point/box prompt (one object). The inspector shows only the thresholds a family uses (`controls` in `config/models.yaml`).
-5. Add Detection, Segmentation, Feature, Tensor, or Video Preview as appropriate and connect typed handles.
-6. Select **Validate**, then **Run**. Nodes visibly progress through waiting → loading/running → success/error, active edges animate, and results stream into the dock.
-7. Toggle **Original** / **Prediction** in the dock and inspect preprocessing, inference, postprocessing, total time, object count, GPU allocated/reserved/peak memory, and device name.
-8. Video decoding is sequential; Pause/Resume/Stop operate at frame checkpoints without buffering the whole file.
-9. Resize **Live Output** by dragging its top grip to change height or its right-side divider to change width. The selected dimensions persist across reloads and desktop restarts.
-10. Watch the header's CPU and GPU rings for utilization; their detail lines show RAM, VRAM, and GPU temperature and refresh every 1.5 seconds.
-
-The Node Library groups imported entries from registry metadata under CHAINNER STANDARD, PYTORCH, ONNX, NCNN, TENSORRT, and EXTERNAL. Search covers name, description, package, category, group, and schema ID. Imported controls and conditional enum groups are rendered by the same generic Inspector used by native nodes. Images cross the Vision/chaiNNer boundary in memory (`uint8` ↔ normalized `float32`) without PNG/JPEG serialization.
-
-For video, configure the Video source with `frame_stride`, warm-up frames, and an optional benchmark-frame limit. A stride of 1 infers every source frame; a stride of 5 infers source frames 0, 5, 10, and so on while retaining source timestamps. Models are loaded once by the Model node and reused for every frame.
-
-Saved example shapes are under `workflows/examples/`; replace their placeholder asset and weight IDs with values returned by uploads. `image-chainner-resize.json` demonstrates imported preprocessing with a direct image preview, `image-grounding-dino.json` demonstrates text-prompt detection, and `image-sam.json` demonstrates box-prompt segmentation.
-
-## Supported nodes
-
-| Category | Nodes | Input → output |
+| Variable | Default | Purpose |
 |---|---|---|
-| Sources | Image, Video | asset ID → `image` / `video` |
-| Model | Universal Model | `image` or `video` → registry-derived result |
-| Processing | Resize, Crop, Threshold | `image` → `image` |
-| chaiNNer imported | Registry-derived Standard/PyTorch/ONNX/NCNN/TensorRT/External nodes | Native typed values, including sequences |
-| Outputs | Image Preview | processed `image` → live preview |
-| Outputs | Detection Preview | `detections` → rendered image |
-| Outputs | Segmentation Preview | `segmentation` → translucent masks and boundaries |
-| Outputs | Feature Preview | `feature_map`/`embedding` → heatmap |
-| Outputs | Tensor Preview | `tensor` → raw tensor card |
-| Outputs | Video Preview | `video` model stream → streamed frames |
+| `VIS_PROJECT_ROOT` | repo root | Base for the default paths below |
+| `VIS_DATA_DIR` | project root | Data root (desktop: `~/.local/share/vision-inference-studio`) |
+| `VIS_CONFIG_DIR` | `config/` | Model registry and chaiNNer settings |
+| `VIS_MODELS_FILE` | `config/models.yaml` | Model family registry |
+| `VIS_WEIGHTS_DIR` | `weights/` | Uploaded weights |
+| `VIS_WORKFLOWS_DIR` / `VIS_WORKSPACE_DIR` / `VIS_BENCHMARKS_DIR` / `VIS_REPORTS_DIR` | under the data dir | Saved workflows, assets/previews, benchmark JSON, reports |
+| `VIS_GEOMETRIES_DIR` | `<data>/feature_geometries` | Frozen Mahalanobis geometries |
+| `VIS_MAX_UPLOAD_BYTES` | `5368709120` | Upload size limit |
+| `VIS_FEATURE_STORE_MAX_ENTRIES` / `VIS_FEATURE_STORE_MAX_BYTES` | built-in limits | Feature store capacity |
+| `VIS_CHAINNER_SRC_DIR` | sibling `src/` | chaiNNer source tree |
+| `VIS_RECIPE_INPUT_ROOTS` | unset | `os.pathsep`-separated roots allowed for server-to-server recipe execution |
+| `VIS_API_TOKEN`, `VIS_DESKTOP_MODE`, `VIS_PARENT_PID` | set by the desktop app | Desktop session security and lifecycle |
+| `HF_TOKEN` | — | Hugging Face (SAM 3, Grounding DINO BERT, Public Hub) |
+| `ROBOFLOW_API_KEY` | — | Roboflow Universe |
+| `KAGGLE_API_TOKEN` or `KAGGLE_USERNAME` + `KAGGLE_KEY` (`KAGGLE_CONFIG_DIR`) | — | Kaggle |
+| `PUBLIC_HUB_CACHE` | `./workspace/public-hub` | Import cache (`PUBLIC_DATASET_CACHE` / `PUBLIC_MODEL_CACHE` split it) |
+| `PUBLIC_HUB_MAX_CACHE_GB` / `_MAX_CONCURRENT_DOWNLOADS` / `_MAX_EXTRACT_GB` / `_MAX_FILE_GB` | `50` / `2` / `100` / `20` | Import limits |
+| `VITE_API_URL` | `http://<host>:8000` | Frontend API address (build/dev time) |
 
-The shared type vocabulary also reserves frame, bboxes, mask, segmentation, classification, heatmap, depth, weights, number, string, and boolean for compatible future nodes.
+---
 
-## Supported model registry
+## HTTP and WebSocket API
 
-| Family | Versions | Sizes | Result | Adapter |
-|---|---|---|---|---|
-| YOLO | v8, v11, v12 | n, s, m, l, x, custom | detections | Ultralytics |
-| RF-DETR | v1 | nano, small, medium, base, large | detections | `rfdetr` |
-| DINOv3 | official | vit-s, vit-b, vit-l | feature map | Transformers/PyTorch |
-| Grounding DINO | official | tiny (Swin-T OGC), base (Swin-B) | text-prompt detections | official IDEA-Research `groundingdino` |
-| Segment Anything | v1 | vit-b, vit-l, vit-h | point/box-prompt segmentation | Transformers/PyTorch |
-| Segment Anything 2 | 2.1, 2.0 | tiny, small, base-plus, large | point/box-prompt segmentation | Ultralytics |
-| Segment Anything 3 | 3.0 | base | text-prompt concept segmentation, point/box segmentation | Ultralytics |
-| Generic ONNX | generic | custom | tensor | ONNX Runtime |
-
-DINOv3 returns a feature map and is never represented as an object detector. Grounding DINO turns text concepts into labeled boxes. SAM is promptable segmentation rather than text detection: use a foreground/background point or bounding box. Combining Grounding DINO boxes with SAM masks remains out of scope; v0.5 does not pretend that SAM itself accepts text.
-
-SAM (v1) initializes its matching Hugging Face architecture/processor and then applies the uploaded local checkpoint using data-only loading (`weights_only=True` or Safetensors). Uploaded checkpoints must match the selected size.
-
-Checkpoints for the other prompt families are the official releases, uploaded as-is:
-
-- **Grounding DINO**: `groundingdino_swint_ogc.pth` (tiny) or `groundingdino_swinb_cogcoor.pth` (base) from the IDEA-Research GitHub releases. Loaded data-only (`weights_only=True`); a checkpoint for the other size is rejected.
-- **SAM 2 / 2.1**: Meta's `sam2.1_hiera_{tiny,small,base_plus,large}.pt` (or `sam2_hiera_*.pt` for 2.0), or the Ultralytics mirrors `sam2.1_{t,s,b,l}.pt`. Ultralytics selects the SAM 2.1 architecture from the file name, so the adapter exposes the stored upload under its canonical name while building; the state dict loads strictly, so a version/size mismatch fails.
-- **SAM 3**: `sam3.pt` from the gated [`facebook/sam3`](https://huggingface.co/facebook/sam3) repository (3.45 GB). Text prompts run at SAM 3's native 1008 px; point/box prompts run at 644 px because the interactive predictor exceeds a 6 GB GPU at 840 px and above. Only one of the two predictors stays resident, so switching prompt mode reloads (~10 s). The default upload limit is 5 GiB so SAM ViT-H fits; override it with `VIS_MAX_UPLOAD_BYTES` when needed.
-
-## API
+All routes are under `/api/v1` except `/health`. Interactive docs: `/docs`.
 
 ```text
 GET  /health
-GET  /api/v1/nodes
-GET  /api/v1/models
-GET  /api/v1/models/loaded
-GET  /api/v1/devices
-GET  /api/v1/system/metrics
-GET  /api/v1/features/stats
-GET  /api/v1/chainner/report
-GET  /api/v1/chainner/settings
-PUT  /api/v1/chainner/settings
-GET  /api/v1/benchmarks
-GET  /api/v1/benchmarks/{run_id}
-GET  /api/v1/weights
-POST /api/v1/weights
-POST /api/v1/models/load
-POST /api/v1/models/unload
-POST /api/v1/assets/image
-POST /api/v1/assets/video
-POST /api/v1/workflows/validate
-POST /api/v1/workflows/run
-GET  /api/v1/workflows
-POST /api/v1/workflows
-GET  /api/v1/workflows/{workflow_id}
-POST /api/v1/executions/{run_id}/pause
-POST /api/v1/executions/{run_id}/resume
-POST /api/v1/executions/{run_id}/stop
-WS   /api/v1/executions/{run_id}
+GET  /nodes                        GET  /models          GET  /models/loaded
+GET  /devices                      GET  /system/metrics  POST /models/load       POST /models/unload
+GET  /weights                      POST /weights
+POST /assets/image                 POST /assets/video
+POST /workflows/validate           POST /workflows/run
+GET  /workflows                    POST /workflows       GET  /workflows/{workflow_id}
+POST /executions/{run_id}/pause    POST /executions/{run_id}/resume   POST /executions/{run_id}/stop
+WS   /executions/{run_id}
+GET  /features/stats               GET  /features/geometries
+GET  /chainner/report              GET  /chainner/settings            PUT  /chainner/settings
+GET  /benchmarks                   POST /benchmarks      GET  /benchmarks/{run_id}
+GET  /runtime-benchmarks
+
+GET  /public-hub/providers         POST /public-hub/providers/{provider}/test
+GET  /public-hub/credentials       PUT  /public-hub/credentials/{provider}   DELETE /public-hub/credentials/{provider}
+GET  /public-hub/datasets/search   GET  /public-hub/models/search    GET /public-hub/dataset-preview
+GET  /public-hub/{datasets|models}/{provider}/{resource}
+GET  /public-hub/downloads         POST /public-hub/downloads        GET /public-hub/downloads/events
+GET  /public-hub/downloads/{id}    POST /public-hub/downloads/{id}/cancel   POST /public-hub/downloads/{id}/retry
+GET  /assets/datasets              GET  /assets/datasets/{dataset_id}
+GET  /assets/datasets/{dataset_id}/samples                GET /assets/datasets/{dataset_id}/samples/{item_id}
+GET  /assets/models                GET  /assets/models/{model_artifact_id}
+GET  /experiments                  POST /experiments                 GET /experiments/{id}
+POST /experiments/{id}/start       POST /experiments/{id}/cancel     POST /experiments/{id}/promote
+GET  /experiments/{id}/results     GET  /experiments/{id}/items/{item_id}
+GET  /recipes                      GET  /recipes/{recipe_id}         POST /recipes/execute
 ```
 
-Interactive API documentation is at `http://localhost:8000/docs`.
+Run events on the WebSocket carry a category in `type` and a lifecycle name in `event`. Video frames are delivered latest-first; lifecycle and control events are lossless.
 
-## Adding an adapter
+---
 
-1. Implement `ModelAdapter` in `backend/inference_studio/adapters/`. Keep all runtime-specific imports lazy so other adapters still work if that runtime is absent.
-2. Return a standard `DetectionResult`, `SegmentationResult`, `FeatureResult`, or `TensorResult`; never draw in the adapter.
-3. Register the adapter once in `AdapterRegistry`.
-4. Add the family, compatible extensions, versions/sizes, adapter key, and result type to `config/models.yaml`.
-5. Add lifecycle and serialization tests. No API family branch is necessary.
+## Building the packages
 
-## Adding a node
+You need Node 20+ **with npm**; Electron Forge's preflight runs `npm --version`. You also need Python and `dpkg`/`fakeroot` for the `.deb`.
 
-1. Add its `NodeDefinition` to the backend node registry with typed ports and config fields.
-2. Add its backend operation to the executor (or a dedicated executor callable as the library grows).
-3. If it introduces a result type, add a Pydantic result and renderer registration.
-4. Add validation/execution tests. The generic React node and property inspector render server metadata automatically; specialized visuals are optional.
+```bash
+make desktop-make-linux
+# = frontend build → desktop TypeScript build → stage resources → electron-forge make (linux/x64)
+```
+
+Outputs:
+- `desktop/out/make/deb/x64/vision-inference-studio_<version>_amd64.deb`
+- `desktop/out/make/zip/linux/x64/Vision Inference Studio-linux-x64-<version>.zip`
+
+**What staging does** (`desktop/scripts/stage-resources.mjs`):
+- copies the backend, config, frontend bundle, chaiNNer source, Linux packaging scripts and requirement files into `desktop/resources/`;
+- downloads and checksum-verifies the relocatable CPython 3.12.15.
+
+Prebuilt Grounding DINO / CLIP wheels go in `desktop/wheels/` (`desktop/scripts/build-wheels.sh`).
+
+**Useful overrides:**
+- `VIS_FRONTEND_DIST=<dir>`: use a frontend bundle built outside `frontend/dist`.
+- `VIS_CHAINNER_SRC_DIR=<dir>`: chaiNNer source location.
+
+**Adding a requirements file:** keep these lists in sync, or fresh runtime installs fail:
+- `desktop/scripts/stage-resources.mjs` (staged);
+- `desktop/forge.config.ts` (`extraResource`, packaged);
+- `desktop/src/backend/RuntimeManager.ts` and both lists in `packaging/linux/setup-runtime.sh` (runtime hash and presence check).
+
+**Release checklist:**
+1. Bump the version in `pyproject.toml`, `backend/inference_studio/__init__.py`, `frontend/package.json` and `desktop/package.json`.
+2. Build.
+3. Check the package contents, e.g. `dpkg-deb -c <deb> | grep -E "requirements|dist/assets"`.
+4. Scan for secrets.
+5. Install and launch.
+6. Tag `vX.Y.Z` and attach the `.deb`, `.zip` and `SHA256SUMS` to the GitHub release.
+
+---
+
+## Testing
+
+```bash
+PYTHONPATH=backend ~/venv/bin/pytest -q backend/tests            # unit + API suite
+cd frontend && npm run build                                      # type-check + production build
+```
+
+**Real-model integration tests** are skipped unless their environment variables are set:
+
+| Test | Variables |
+|---|---|
+| YOLO / RF-DETR image | `VIS_YOLO_WEIGHT`, `VIS_RFDETR_WEIGHT`, `VIS_TEST_IMAGE` |
+| Video | `VIS_TEST_VIDEO` plus a weight variable |
+| DINOv3 | `VIS_DINO_WEIGHTS`, `VIS_DINO_TEST_REFERENCE`, `VIS_DINO_TEST_CURRENT` |
+| RF-DETR v2.2 features | `VIS_RFDETR_V22_WEIGHTS`, `VIS_FEATURE_TEST_IMAGE` |
+| Architecture B features | `VIS_ARCHB_WEIGHTS`, `VIS_FEATURE_TEST_IMAGE`, optional `VIS_ARCHB_GEOMETRY` |
+
+Set `VIS_TEST_DEVICE=cuda:0` when running the integration tests together. Ultralytics' CPU device selection otherwise hides the GPU from later tests in the same process.
+
+**What the suite covers:**
+- graph validation, planning and execution;
+- immutable model identity and request isolation;
+- inference serialisation and execution-scope cleanup;
+- runtime values and lazy chaiNNer streams;
+- the feature store, feature-space compatibility, all difference modes, XOR and Mahalanobis parity with the vendored references;
+- the geometry store;
+- Public Hub providers, credentials, downloads and archive safety;
+- benchmarks, experiments and recipes.
+
+---
 
 ## Security model
 
-- Uploads are streamed into family/kind-specific directories and assigned random opaque IDs.
-- Filenames are reduced to their basename; client paths are never accepted or opened.
-- IDs use strict formats and resolved paths must remain inside their store.
-- Extension, size, family, readability/decodability, and existence are checked.
-- Upload does not load a model. Model deserialization only happens after an explicit load/run action.
-- DINO state dict loading uses PyTorch `weights_only=True`.
-- There are no Python-code, shell-command, dynamic import, `eval`, or `exec` nodes.
-- Workflows serialize only JSON-safe configuration and IDs—not tensors, model objects, frames, or file handles.
+- Uploads stream into kind-specific stores under random opaque IDs. Filenames are reduced to their basename, client paths are never accepted, and resolved paths must stay inside their store.
+- Uploading a file never loads a model; deserialization happens only on an explicit load or run. DINO and SAM state dicts load with `weights_only=True`, and geometries load data-only.
+- There are no code, shell, dynamic-import, `eval` or `exec` nodes. Workflows serialize only JSON-safe config and IDs.
+- Provider secrets stay on the backend. They never enter browser responses, workflows, download metadata or experiment records.
+- Public archives are rejected on absolute/traversal paths, links, devices, oversized members or excessive expansion. Downloaded Python is never imported, and `trust_remote_code` is never enabled.
+- Recipe execution against local paths is limited to `VIS_RECIPE_INPUT_ROOTS`.
+- The desktop backend listens only on loopback and requires the per-session token.
 
-Treat model files as trusted artifacts: some third-party runtimes (notably Ultralytics/PyTorch checkpoint compatibility paths) may deserialize formats with broader behavior than safetensors. Use weights from a trusted source and isolate the backend in production.
+Treat model files as trusted artifacts. Some runtimes (Ultralytics and PyTorch compatibility paths) unpickle checkpoints, so use weights from trusted sources and isolate the backend in production.
 
-## Tests
+---
 
-```bash
-PYTHONPATH=backend /home/avinash/venv/bin/pytest -q backend/tests
-cd frontend && npm run build
+## Repository layout
+
+```text
+backend/inference_studio/
+  adapters/        model families (YOLO, RF-DETR, DINOv3, ONNX, Grounding DINO, SAM, SAM 2, SAM 3)
+  api/             HTTP + WebSocket routes
+  assets/          asset records and storage
+  chainner/        chaiNNer registry import, types, settings, execution
+  features/        feature schema, store, ops, geometry store, visualization
+    extractors/    dinov3, rfdetr_v22, rfdetr_arch_b, vendor/ (verbatim source-of-truth modules)
+  graph/           schema, validator, planner, executor, persistence
+  models/          manifest, registry, weight store, ModelManager
+  nodes/           node definitions and runtime values
+  public_hub/      providers, downloads, inspection, benchmarks, experiments, recipes
+  renderers/  results/  runtime/  video/
+backend/tests/     unit, API and integration tests
+frontend/src/      React app (canvas, nodes, inspector, preview dock, pages)
+desktop/           Electron main process, staging script, Forge config
+packaging/         Linux runtime setup and portable install scripts
+config/models.yaml model family registry
+docs/              screenshots, ADRs, acceptance reports
+workflows/examples/  example workflow graphs
+release*/          per-release install guides and checksums (packages are on GitHub releases)
 ```
 
-The suite covers the v0.4 graph/video/model behavior plus immutable model identity, request isolation, inference serialization, execution-scope cleanup, explicit runtime values, metadata-driven ndarray conversion, settings persistence/snapshots, lazy single-pass streams, stream fan-out rejection, feature-store refcounts/capacity/run cleanup, feature-space matching, all four difference modes, identity/localized-change behavior, and non-square DINO patch reconstruction. GPU/model integration remains separate because it needs runtime-specific weights and drivers.
+Runtime uploads, previews, saved workflows, virtual environments, weights, geometries and `.env` are git-ignored.
 
-## Video runtime and benchmark behavior
+---
 
-- `VideoReader` owns OpenCV open, sequential decode, seek, metadata, and close behavior. Frames are never accumulated in memory.
-- The executor owns stride scheduling and calls the frame-level request-aware adapter contract. Adapters contain no video loops.
-- The Model node loads or reuses one immutable-key cached handle before frame iteration. Confidence/prompts remain per-request and can change without checkpoint deserialization.
-- Warm-up frames are excluded from benchmark distributions. CUDA timing remains synchronized in the adapter.
-- Live preview uses ten rotating JPEG slots per run. WebSocket subscribers retain only the newest pending frame while lifecycle/control events remain lossless.
-- Pause is acknowledged at the next frame boundary. Resume continues with the existing reader position. Cancel closes the reader, persists the partial benchmark, and leaves the reusable model loaded.
-- Benchmark JSON is written atomically under `workspace/benchmarks/`; the UI retains completed YOLO/RF-DETR reports in a comparison table.
-- Latency distributions include count, mean, median/p50, p90, p95, p99, minimum, and maximum for decode, preprocessing, inference, postprocessing, rendering, publish queueing, and total frame time.
+## Known limitations
 
-## Acceptance status
-
-| Check | Result in this workspace |
-|---|---|
-| Node library → typed React Flow → inspector → validate/run | Implemented; production TypeScript build passes |
-| Browser-driven React Flow acceptance | **Passed** in headless Chrome by selecting each saved workflow and clicking the UI Run button. Both runs reached `COMPLETED`, delivered 14 lifecycle events, loaded their preview image, and displayed device/timing/VRAM metrics. |
-| Backend graph execution and rendered preview | Passed with real image decode, real adapters, standardized results, separate renderer, and original/prediction URLs |
-| YOLO real inference | **Passed on CUDA** using `best.pt` and the saved `wf_yoloacceptance` graph. It produced 4 detections on `cam04.jpg`; cold total was 683.1 ms with 87.8 MB allocated, 350 MB reserved, and 262.3 MB peak GPU memory. The prediction preview was visually checked. |
-| RF-DETR real inference | **Passed on CUDA** using the official legacy `rf-detr-large.pth` and saved `wf_rfdetracceptance` graph. It produced 1 detection at 0.489 confidence (COCO `train`, a false positive on this industrial scene; it was shown as `truck` until the rfdetr 1.6 COCO label shift was fixed in the adapter); cold total was 749.8 ms with 534.6 MB allocated, 820 MB reserved, and 682.9 MB peak GPU memory. The prediction preview was visually checked. |
-| DINOv3 real feature output | Not run; no compatible DINOv3 checkpoint was available |
-| DINOv3 feature unit acceptance | Passed with backend-device tensors, non-square `2 × 3 × 4` reconstruction, special-token exclusion, opaque results, feature compatibility, identity, and localized-change tests |
-| Cached-model concurrency | Passed: one load for concurrent same-key requests, independent prompt/confidence values, and maximum active inference of one with the default semaphore |
-| Lazy chaiNNer sequence | Passed using real imported Range → Enumerate → Sequence Length with 100,000 items; traced peak was 0.93 MB after startup and no sequence list was materialized |
-| Feature operations (synthetic CUDA) | Passed on RTX 4050 at `32 × 48 × 384` FP16 (1,179,648 bytes): warm median normalize 0.135 ms, cosine difference 0.388 ms; same-feature max distance `2.38e-7`; localized max `0.319` |
-| FeatureStore stress | Passed 50 put/release cycles; final entries, CPU bytes, and GPU bytes were all zero |
-| SAM prompt segmentation | **Passed on CUDA/FP16** through the API with the `facebook/sam-vit-base` safetensors checkpoint: box prompt → bus mask 1.00 (602 ms cold), point prompt → person mask 0.86 (144 ms). |
-| Grounding DINO (official) real inference | **Passed on CUDA/FP16** through the API with `groundingdino_swint_ogc.pth`: on Ultralytics' `bus.jpg`, "bus, person" gave bus 0.85 and all four people 0.63–0.83 in 534 ms (2.0 GB peak). A Swin-T checkpoint selected as `base` is rejected. |
-| SAM 2.1 real inference | **Passed on CUDA/FP16** through the API with Meta's `sam2.1_hiera_base_plus.pt`: box prompt → bus mask 0.98 (108 ms), point prompt → person mask 0.94 (80 ms), 2.5 GB peak. The same checkpoint selected as version 2.0 is rejected. |
-| SAM 3 real inference | **Passed on CUDA/FP16** through the API with `facebook/sam3` `sam3.pt`: text "person, bus" → four person masks 0.95–0.98 and the bus 0.97 (901 ms, 3.7 GB peak); box → bus 0.98; point → person 0.65 (3.8 GB peak). Meta's own `sam3` 0.1.4 package returns no detections under torch 2.5.1, so the adapter uses Ultralytics. |
-| YOLO real video inference | **Passed on CUDA** on the 1920×1080, 20 FPS `cam04_44m_acceptance.mp4`: 2 warm-up + 100 measured frames, 27.7 ms median / 31.0 ms p95 inference, 37.4 ms median end-to-end, 35.9 model FPS, 26.6 end-to-end FPS, and 262 MB peak allocated VRAM |
-| RF-DETR real video inference | **Passed on CUDA** using the identical video graph and source: 2 warm-up + 100 measured frames, 83.1 ms median / 100.8 ms p95 inference, 94.5 ms median end-to-end, 11.6 model FPS, 10.3 end-to-end FPS, and 762 MB peak allocated VRAM |
-| Video controls | Browser-driven pause held the displayed frame stable, resume advanced from the preserved position, and cached-model stop runs reached `CANCELLED` for both families |
-| Long-run memory/retention | A 320-frame real 1080p clip processed 302 inferred frames (300 measured). RSS grew 14.6 MB after warm-up/model reuse, GPU allocation remained bounded, and only ten preview files were retained for the completed run |
-
-The current normal suite passes in `/home/avinash/venv` (`46 passed, 5 optional real-model tests skipped`), and the React production build passes under Node 22. With the available local weights configured, the dedicated real CUDA integration set passes YOLO and RF-DETR image inference plus ten video frames for each family (`4 passed`). A real imported Range → Enumerate → Sequence Length generator/transformer/collector chain also passes through the lazy compatibility executor.
-
-With `VIS_TEST_VIDEO`, both checkpoint variables, CUDA, and a 100-frame target configured, the dedicated real-video integration module passes both families (`2 passed`), loading each checkpoint once and applying the same frame-level adapter contract.
-
-## Known limitations and deliberate deviations
-
-- API routes and UI widgets are grouped by cohesive modules rather than creating a one-file stub for every diagram entry; runtime separation is preserved.
-- The preview dock provides an original/prediction toggle rather than a simultaneous side-by-side layout.
-- Execution events include both a category in `type` and an explicit lifecycle name in `event`.
-- Pause/cancel checkpoints occur between video frames or graph nodes; an individual third-party inference call cannot be pre-empted safely.
-- Generic ONNX v0.1 assumes a single NCHW image input and exposes the first output tensor.
-- The installed RF-DETR runtime recognizes the available large checkpoint as a legacy architecture and automatically selects its deprecated compatibility configuration; this is functional but emits an upstream warning.
-- DINOv3 Transformers model metadata may require initial network access unless already cached; the supplied local state dict is still explicitly applied.
-- A compatible DINOv3 checkpoint is not present in this workspace, so real-camera identity/change metrics and DINO GPU latency remain unmeasured. The artifact/token/operation path is covered with synthetic backend tensors; optional real tests should use `VIS_DINO_WEIGHTS`, `VIS_DINO_TEST_REFERENCE`, and `VIS_DINO_TEST_CURRENT` when a checkpoint is supplied.
-- SAM (v1) may need initial Hugging Face access for processor/config metadata, and Grounding DINO downloads its `bert-base-uncased` text encoder on first load, unless already cached. Only uploaded local model state is applied as the selected checkpoint.
-- Grounding DINO without its compiled CUDA ops uses the package's PyTorch deformable attention (same result, slower); install with a CUDA toolkit to build the kernel.
-- The prompt-model packages build from source and are not yet part of the packaged desktop runtime, which installs prebuilt wheels only.
-- Loading SAM 3 needs about 6–7 GB of system RAM while Ultralytics reads the 3.45 GB checkpoint.
-- SAM, SAM 2 and SAM 3 segment single images or video frames independently. Automatic mask generation, SAM 2/3 video tracking memory, and Grounding-DINO-to-SAM box chaining are not yet implemented.
-- The current local chaiNNer report has 17 unavailable registrations because their optional PyTorch restoration, NCNN, or TensorRT dependencies are not installed. They remain searchable and show the exact import failure.
-- Common enum-dependent chaiNNer input groups are dynamic. Type-expression-only visibility conditions are preserved as metadata but remain visible because the browser does not yet evaluate the full Navi type language.
-- Remote execution, Tailscale, Jetsons, GCP, RTSP, annotation/export, training, arbitrary code/shell nodes, scheduling, and distributed workers are intentionally absent.
-
-## Conclusion
-
-Vision Inference Studio v0.5 turns the v0.4 graph into a safer long-lived execution runtime. Model cache identity can no longer be overwritten by another request, chaiNNer resources now obey node/run lifetimes, streams stay lazy, and ndarray semantics come from port metadata. The feature path retains real DINO tensors behind bounded opaque references and supports continuous normalized delta/heatmap analysis without serializing the tensor or silently comparing incompatible feature spaces.
-
-Acceptance is **PASS for the implemented v0.5 source milestone**: 46 tests pass, the production frontend builds, real YOLO/RF-DETR image and file-video CUDA regressions pass, the 100,000-item imported chaiNNer stream stays bounded, and synthetic CUDA feature identity/change/memory checks pass. Real DINO checkpoint/camera acceptance is the one hardware-artifact limitation and is explicitly not claimed.
-
-RTSP, Tailscale, remote Jetsons, GCP, annotation/export, training, Mahalanobis analysis, clustering, thresholds, tracking, scheduling, multi-GPU coordination, and distributed workers remain intentionally out of scope.
+- **Linux only:** packages are Linux x86_64; there are no Windows or macOS builds.
+- **Weights are never packaged:** they must be uploaded. SAM 3 weights are gated by Meta's license.
+- **Prompt models aren't in the desktop runtime:** they build from source, while the desktop runtime installs prebuilt wheels only. The desktop build bundles prebuilt Grounding DINO / CLIP wheels instead.
+- **SAM family:** SAM, SAM 2 and SAM 3 segment each image or frame independently. There is no video tracking memory, no automatic mask generation, and no Grounding DINO → SAM box chaining yet.
+- **Pause/cancel granularity:** checks happen between frames or nodes; a single third-party inference call can't be interrupted.
+- **Generic ONNX:** assumes a single NCHW image input and exposes the first output.
+- **DINOv3 and SAM (v1) metadata:** may need network access on first load unless cached. Real DINOv3 change metrics haven't been measured yet, because no checkpoint was available.
+- **Mahalanobis geometries:** they are camera- and registration-specific. τ presets are metadata only; thresholding is a separate, explicit step.
+- **chaiNNer:** type-expression-only visibility conditions are kept as metadata but always shown, because the browser doesn't evaluate the full Navi type language.
+- **Out of scope:** remote execution, RTSP, training, annotation/export, scheduling and distributed workers.

@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 def load_env_file(path: Path) -> list[str]:
@@ -40,6 +40,19 @@ class Settings(BaseModel):
     feature_store_max_entries: int = 64
     feature_store_max_bytes: int = 2 * 1024**3
     geometries_dir_override: Path | None = None
+    public_hub_root: Path | None = None
+    public_dataset_cache: Path | None = None
+    public_model_cache: Path | None = None
+    public_hub_max_cache_bytes: int = 50 * 1024**3
+    public_hub_max_concurrent_downloads: int = 2
+    public_hub_max_extract_bytes: int = 100 * 1024**3
+    public_hub_max_file_bytes: int = 20 * 1024**3
+    recipe_input_roots: list[Path] = Field(default_factory=list)
+
+    def model_post_init(self, __context) -> None:
+        self.public_hub_root = (self.public_hub_root or self.workspace_dir / "public-hub").resolve()
+        self.public_dataset_cache = (self.public_dataset_cache or self.public_hub_root / "datasets").resolve()
+        self.public_model_cache = (self.public_model_cache or self.public_hub_root / "models").resolve()
 
     @property
     def geometries_dir(self) -> Path:
@@ -56,6 +69,7 @@ class Settings(BaseModel):
         workspace_dir = Path(os.getenv("VIS_WORKSPACE_DIR", data_dir / "workspace")).expanduser().resolve()
         default_chainner = root.parent / "src"
         chainner_value = os.getenv("VIS_CHAINNER_SRC_DIR")
+        hub_root = Path(os.getenv("PUBLIC_HUB_CACHE", workspace_dir / "public-hub")).expanduser().resolve()
         return cls(
             project_root=root,
             workspace_dir=workspace_dir,
@@ -70,8 +84,16 @@ class Settings(BaseModel):
             feature_store_max_entries=int(os.getenv("VIS_FEATURE_STORE_MAX_ENTRIES", "64")),
             feature_store_max_bytes=int(os.getenv("VIS_FEATURE_STORE_MAX_BYTES", str(2 * 1024**3))),
             geometries_dir_override=Path(os.getenv("VIS_GEOMETRIES_DIR", data_dir / "feature_geometries")).expanduser().resolve(),
+            public_hub_root=hub_root,
+            public_dataset_cache=Path(os.getenv("PUBLIC_DATASET_CACHE", hub_root / "datasets")).expanduser().resolve(),
+            public_model_cache=Path(os.getenv("PUBLIC_MODEL_CACHE", hub_root / "models")).expanduser().resolve(),
+            public_hub_max_cache_bytes=int(float(os.getenv("PUBLIC_HUB_MAX_CACHE_GB", "50")) * 1024**3),
+            public_hub_max_concurrent_downloads=max(1, int(os.getenv("PUBLIC_HUB_MAX_CONCURRENT_DOWNLOADS", "2"))),
+            public_hub_max_extract_bytes=int(float(os.getenv("PUBLIC_HUB_MAX_EXTRACT_GB", "100")) * 1024**3),
+            public_hub_max_file_bytes=int(float(os.getenv("PUBLIC_HUB_MAX_FILE_GB", "20")) * 1024**3),
+            recipe_input_roots=[Path(value).expanduser().resolve() for value in os.getenv("VIS_RECIPE_INPUT_ROOTS", "").split(os.pathsep) if value],
         )
 
     def prepare(self) -> None:
-        for path in (self.workspace_dir / "assets", self.workspace_dir / "previews", self.weights_dir, self.workflows_dir, self.benchmarks_dir, self.reports_dir or self.workspace_dir / "reports", self.geometries_dir):
+        for path in (self.workspace_dir / "assets", self.workspace_dir / "previews", self.weights_dir, self.workflows_dir, self.benchmarks_dir, self.reports_dir or self.workspace_dir / "reports", self.geometries_dir, self.public_hub_root, self.public_dataset_cache, self.public_model_cache):
             path.mkdir(parents=True, exist_ok=True)

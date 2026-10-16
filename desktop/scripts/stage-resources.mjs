@@ -36,7 +36,7 @@ fs.cpSync(chainnerSrc, path.join(target, 'chainner', 'src'), { recursive: true, 
 fs.mkdirSync(path.join(target, 'packaging'), { recursive: true })
 fs.cpSync(path.join(projectRoot, 'packaging', 'linux'), path.join(target, 'packaging', 'linux'), { recursive: true })
 fs.cpSync(path.join(desktopRoot, 'assets'), path.join(target, 'assets'), { recursive: true })
-for (const name of ['pyproject.toml', 'requirements.txt', 'requirements-runtimes.txt', 'requirements-chainner-standard.txt', 'requirements-desktop.txt', 'requirements-lock.txt']) {
+for (const name of ['pyproject.toml', 'requirements.txt', 'requirements-runtimes.txt', 'requirements-chainner-standard.txt', 'requirements-desktop.txt', 'requirements-lock.txt', 'requirements-public-hub.txt']) {
   fs.copyFileSync(path.join(projectRoot, name), path.join(target, name))
 }
 

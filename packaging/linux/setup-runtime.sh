@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-APP_VERSION="${VIS_APP_VERSION:-0.5.0}"
+APP_VERSION="${VIS_APP_VERSION:-0.6.0}"
 SCRIPT_PATH="$(readlink -f "${BASH_SOURCE[0]}")"
 SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
 APP_ROOT="${VIS_APP_ROOT:-$(cd "$SCRIPT_DIR/../.." && pwd)}"
@@ -30,7 +30,7 @@ done
 requirements_hash() {
   local name
   {
-    for name in requirements.txt requirements-runtimes.txt requirements-chainner-standard.txt requirements-desktop.txt requirements-lock.txt pyproject.toml; do
+    for name in requirements.txt requirements-runtimes.txt requirements-chainner-standard.txt requirements-desktop.txt requirements-lock.txt requirements-public-hub.txt pyproject.toml; do
       printf '%s\n' "$name"
       cat "$APP_ROOT/$name"
       printf '\n'
@@ -102,7 +102,7 @@ select_python() {
 
 START_SECONDS="$SECONDS"
 progress 1 "Preparing private application directories"
-for file in requirements.txt requirements-runtimes.txt requirements-chainner-standard.txt requirements-desktop.txt requirements-lock.txt pyproject.toml; do
+for file in requirements.txt requirements-runtimes.txt requirements-chainner-standard.txt requirements-desktop.txt requirements-lock.txt requirements-public-hub.txt pyproject.toml; do
   [[ -f "$APP_ROOT/$file" ]] || { echo "Missing packaged file: $APP_ROOT/$file" >&2; exit 4; }
 done
 

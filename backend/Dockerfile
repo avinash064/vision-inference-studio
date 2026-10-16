@@ -1,7 +1,7 @@
 FROM python:3.12-slim
 WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends libgl1 libglib2.0-0 && rm -rf /var/lib/apt/lists/*
-COPY requirements.txt requirements-runtimes.txt ./
+COPY requirements.txt requirements-public-hub.txt requirements-runtimes.txt ./
 ARG INSTALL_RUNTIMES=0
 RUN pip install --no-cache-dir -r requirements.txt && if [ "$INSTALL_RUNTIMES" = "1" ]; then pip install --no-cache-dir -r requirements-runtimes.txt; fi
 COPY backend ./backend

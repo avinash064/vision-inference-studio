@@ -39,7 +39,9 @@ export class BackendProcessManager {
         VIS_API_TOKEN: this.token,
         VIS_PROJECT_ROOT: this.paths.appRoot,
         VIS_DATA_DIR: this.paths.dataRoot,
-        VIS_CONFIG_DIR: path.join(this.paths.appRoot, 'config'),
+        // Mutable settings belong to the user's config directory. The read-only model catalog
+        // remains explicitly pinned to the packaged resources through VIS_MODELS_FILE below.
+        VIS_CONFIG_DIR: this.paths.configRoot,
         VIS_MODELS_FILE: this.paths.modelsFile,
         VIS_WEIGHTS_DIR: this.paths.weights,
         VIS_WORKFLOWS_DIR: this.paths.workflows,

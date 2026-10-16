@@ -21,6 +21,7 @@ const config: ForgeConfig = {
       path.join(resources, 'requirements-chainner-standard.txt'),
       path.join(resources, 'requirements-desktop.txt'),
       path.join(resources, 'requirements-lock.txt'),
+      path.join(resources, 'requirements-public-hub.txt'),
       path.join(resources, 'wheels'),
       path.join(resources, 'chainner'),
       path.join(resources, 'python'),

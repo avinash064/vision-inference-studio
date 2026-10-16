@@ -5,6 +5,7 @@ import signal
 import threading
 import time
 from dataclasses import dataclass
+from pathlib import Path
 
 from fastapi import FastAPI, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
@@ -22,6 +23,14 @@ from inference_studio.graph.validator import WorkflowValidator
 from inference_studio.models import ModelManager, ModelRegistry, WeightStore
 from inference_studio.nodes import NodeRegistry
 from inference_studio.security import DesktopSessionMiddleware, websocket_protocol
+from inference_studio.public_hub.assets import ImportedAssetRegistry
+from inference_studio.public_hub.benchmarks import BenchmarkRegistry
+from inference_studio.public_hub.downloads import DownloadManager
+from inference_studio.public_hub.credentials import ProviderCredentialStore
+from inference_studio.public_hub.experiments import ExperimentRegistry
+from inference_studio.public_hub.providers import HuggingFaceProvider, KaggleProvider, RoboflowProvider
+from inference_studio.public_hub.recipes import RecipeRegistry
+from inference_studio.public_hub.registry import ExternalProviderRegistry
 
 
 @dataclass
@@ -38,6 +47,13 @@ class Services:
     chainner: ChainnerRegistryAdapter | None = None
     chainner_settings: ChainnerSettingsStore | None = None
     geometries: MahalanobisGeometryStore | None = None
+    public_providers: ExternalProviderRegistry | None = None
+    imported_assets: ImportedAssetRegistry | None = None
+    downloads: DownloadManager | None = None
+    benchmark_registry: BenchmarkRegistry | None = None
+    experiments: ExperimentRegistry | None = None
+    recipes: RecipeRegistry | None = None
+    credentials: ProviderCredentialStore | None = None
 
 
 def watch_parent_process(parent_pid: int, interval: float = 2.0) -> threading.Thread:
@@ -95,8 +111,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     chainner_executor = ChainnerNodeExecutor(chainner, config.workspace_dir / "chainner-storage") if chainner is not None else None
     geometries = MahalanobisGeometryStore(config.geometries_dir)
     engine = ExecutionEngine(validator, assets, manager, config.workspace_dir / "previews", config.benchmarks_dir, chainner=chainner_executor, settings_snapshot=chainner_settings.snapshot, feature_store_max_entries=config.feature_store_max_entries, feature_store_max_bytes=config.feature_store_max_bytes, geometries=geometries)
-    app = FastAPI(title="Vision Inference Studio", version="0.5.0")
-    app.state.services = Services(config, nodes, models, weights, assets, manager, validator, engine, WorkflowStore(config.workflows_dir), chainner, chainner_settings, geometries)
+    providers = ExternalProviderRegistry([HuggingFaceProvider(), RoboflowProvider(), KaggleProvider()])
+    imported_assets = ImportedAssetRegistry(config.public_hub_root / "metadata" / "assets")
+    downloads = DownloadManager(config, providers, imported_assets, weights)
+    benchmark_registry = BenchmarkRegistry(config.public_hub_root / "metadata" / "benchmarks", imported_assets)
+    experiments = ExperimentRegistry(config.public_hub_root / "metadata", benchmark_registry, imported_assets, assets, engine)
+    recipes = RecipeRegistry(config.public_hub_root / "metadata" / "recipes", benchmark_registry, weights)
+    credentials = ProviderCredentialStore(Path(os.getenv("VIS_ENV_FILE", config.project_root / ".env")).expanduser(), providers)
+    app = FastAPI(title="Vision Inference Studio", version="0.6.0")
+    app.state.services = Services(config, nodes, models, weights, assets, manager, validator, engine, WorkflowStore(config.workflows_dir), chainner, chainner_settings, geometries, providers, imported_assets, downloads, benchmark_registry, experiments, recipes, credentials)
     app.add_middleware(CORSMiddleware, allow_origins=["null", "http://localhost:5173", "http://127.0.0.1:5173", "http://localhost:5174", "http://127.0.0.1:5174"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
     app.add_middleware(DesktopSessionMiddleware)
     app.include_router(router)
@@ -104,7 +127,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.get("/health")
     def health():
-        return {"status": "ok", "version": "0.5.0"}
+        return {"status": "ok", "version": "0.6.0"}
+
+    @app.get("/")
+    def root():
+        return {"name": "Vision Inference Studio API", "version": "0.6.0", "health": "/health", "docs": "/docs", "frontend": "http://127.0.0.1:5174"}
+
+    async def recover_background_work():
+        await downloads.recover()
+        await experiments.recover()
+
+    app.add_event_handler("startup", recover_background_work)
 
     async def release_models():
         await manager.unload_all()

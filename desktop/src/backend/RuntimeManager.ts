@@ -33,7 +33,7 @@ export class RuntimeManager {
 
   requirementsHash(): string {
     const digest = crypto.createHash('sha256')
-    for (const name of ['requirements.txt', 'requirements-runtimes.txt', 'requirements-chainner-standard.txt', 'requirements-desktop.txt', 'requirements-lock.txt', 'pyproject.toml']) {
+    for (const name of ['requirements.txt', 'requirements-runtimes.txt', 'requirements-chainner-standard.txt', 'requirements-desktop.txt', 'requirements-lock.txt', 'requirements-public-hub.txt', 'pyproject.toml']) {
       digest.update(`${name}\n`)
       digest.update(fs.readFileSync(path.join(this.paths.appRoot, name)))
       digest.update('\n')

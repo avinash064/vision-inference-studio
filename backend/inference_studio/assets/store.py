@@ -69,6 +69,22 @@ class AssetStore:
             target.unlink(missing_ok=True)
             raise
 
+    def import_path(self, source_path: str | Path, expected_kind: Literal["image", "video"] = "image") -> AssetRecord:
+        """Copy a trusted server-side file into the existing runtime asset store."""
+        path = Path(source_path).resolve()
+        if not path.is_file():
+            raise AssetError("Source asset does not exist")
+        digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        for metadata in self.root.glob("ast_*.json"):
+            try:
+                data = json.loads(metadata.read_text(encoding="utf-8"))
+                if data.get("sha256") == digest and data.get("kind") == expected_kind:
+                    return self.get(data["asset_id"])
+            except (OSError, json.JSONDecodeError, AssetError):
+                continue
+        with path.open("rb") as source:
+            return self.save(source, path.name, expected_kind)
+
     def _inspect(self, path: Path, asset_id: str, filename: str, kind: Literal["image", "video"], size: int, sha256: str) -> AssetRecord:
         if kind == "image":
             image = cv2.imread(str(path))
