@@ -59,6 +59,7 @@ def main() -> int:
     parser.add_argument("--work", required=True, type=Path)
     parser.add_argument("--skip-electron", action="store_true")
     args = parser.parse_args()
+    args.app_dir = args.app_dir.resolve()  # absolute: the backend runs with cwd=resources, like Electron starts it
     resources = args.app_dir / "resources"
     work = args.work.resolve()
     data, config = work / "Local Data ü" / "Vision Inference Studio", work / "Roaming ü" / "Vision Inference Studio"
