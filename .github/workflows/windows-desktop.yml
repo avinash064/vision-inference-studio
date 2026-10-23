@@ -47,23 +47,34 @@ jobs:
       - name: Frontend (npm ci, type-check, production build)
         working-directory: frontend
         run: |
+          $ErrorActionPreference = 'Stop'; $PSNativeCommandUseErrorActionPreference = $true  # fail on the first failing command
           npm ci
           npm run build
 
       - name: Desktop (npm ci, TypeScript, unit tests)
         working-directory: desktop
         run: |
+          $ErrorActionPreference = 'Stop'; $PSNativeCommandUseErrorActionPreference = $true  # fail on the first failing command
           npm ci
           npm test
 
       - name: Backend test dependencies (CPU PyTorch; same versions as the lock)
         run: |
+          $ErrorActionPreference = 'Stop'; $PSNativeCommandUseErrorActionPreference = $true  # fail on the first failing command
           python -m pip install --upgrade pip
           # The lock pins CUDA builds; tests use the CPU build of the same torch release.
           python -c "import re,pathlib; lines=pathlib.Path('requirements-lock.txt').read_text().splitlines(); pathlib.Path('ci-constraints.txt').write_text('\n'.join(l for l in lines if not re.match(r'(torch|torchvision|nvidia-|triton)\b', l, re.I)))"
           python -m pip install -c ci-constraints.txt -r requirements-dev.txt
           python -m pip install --index-url https://download.pytorch.org/whl/cpu torch==2.5.1 torchvision==0.20.1
           python -m pip install -c ci-constraints.txt scipy rfdetr ultralytics
+
+      - name: Build the bundled Grounding DINO and CLIP wheels (pure Python, pinned commits)
+        run: |
+          $ErrorActionPreference = 'Stop'; $PSNativeCommandUseErrorActionPreference = $true
+          # Same sources as desktop/scripts/build-wheels.sh; groundingdino's setup.py imports torch (installed above).
+          $sources = Select-String -Path requirements-prompt-models.txt -Pattern '^(groundingdino|clip) @ git\+' | ForEach-Object { $_.Line }
+          python -m pip wheel --no-deps --no-build-isolation -w desktop/wheels @sources
+          Get-ChildItem desktop/wheels
 
       - name: Backend tests on Windows
         env:
@@ -72,6 +83,7 @@ jobs:
 
       - name: Record the Windows x64 dependency resolution (full runtime, wheels only)
         run: |
+          $ErrorActionPreference = 'Stop'; $PSNativeCommandUseErrorActionPreference = $true  # fail on the first failing command
           python -m pip install uv
           New-Item -ItemType Directory -Force release-windows | Out-Null
           uv pip compile requirements-desktop.txt -c requirements-lock.txt --python-platform x86_64-pc-windows-msvc --python-version 3.12 --extra-index-url https://download.pytorch.org/whl/cu121 --index-strategy unsafe-best-match --only-binary :all: --no-header -o release-windows/requirements-windows-resolved.txt
@@ -91,6 +103,7 @@ jobs:
           VIS_FRONTEND_DIST: ${{ github.workspace }}/frontend/dist
           WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
         run: |
+          $ErrorActionPreference = 'Stop'; $PSNativeCommandUseErrorActionPreference = $true
           node scripts/stage-resources.mjs
           npx electron-forge make --platform=win32 --arch=x64
 
@@ -101,7 +114,7 @@ jobs:
         if: always()
         run: |
           New-Item -ItemType Directory -Force release-windows | Out-Null
-          Get-ChildItem desktop/out/make -Recurse -File -Include *.exe,*.nupkg,*.zip,RELEASES | ForEach-Object { Copy-Item $_.FullName release-windows/ }
+          Get-ChildItem desktop/out/make -Recurse -File -Include *.exe,*.nupkg,*.zip,RELEASES -ErrorAction SilentlyContinue | ForEach-Object { Copy-Item $_.FullName release-windows/ }
           Copy-Item "$env:RUNNER_TEMP/vis-smoke/smoke-report.json" release-windows/ -ErrorAction SilentlyContinue
           Copy-Item test-results/backend-windows.xml release-windows/ -ErrorAction SilentlyContinue
           Push-Location release-windows
