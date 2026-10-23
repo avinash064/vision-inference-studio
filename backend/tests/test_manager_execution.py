@@ -39,6 +39,10 @@ class FakeAdapter(ModelAdapter):
         self.unloads += 1
 
 
+class FakeWeightlessAdapter(FakeAdapter):
+    name = "tesseract"
+
+
 async def wait_terminal(engine, run_id):
     for _ in range(100):
         if engine.get(run_id).state in {RunState.COMPLETED, RunState.ERROR, RunState.STOPPED}:
@@ -60,6 +64,16 @@ async def test_model_manager_caches_and_unloads(model_registry, stores, register
     assert second.key == config.model_key()
     await manager.unload(config)
     assert fake.unloads == 1 and manager.status()[0].state == "UNLOADED"
+
+
+async def test_model_manager_loads_weightless_engine_without_weight_lookup(model_registry, stores):
+    weights, _ = stores
+    fake = FakeWeightlessAdapter()
+    manager = ModelManager(model_registry, weights, AdapterRegistry([fake]))
+    config = ModelConfig(family="tesseract", version="5", size="system", ocr_language="eng")
+    loaded = await manager.load(config)
+    assert fake.loads == 1 and loaded.weight_path == __import__("pathlib").Path()
+    assert manager.status()[0].weight_id == ""
 
 
 async def test_execution_serializes_results_and_selects_detection_renderer(tmp_path, model_registry, stores, registered_files):

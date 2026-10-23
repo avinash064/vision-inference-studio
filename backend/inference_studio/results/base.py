@@ -28,4 +28,5 @@ ResultType = Literal[
     "segmentation",
     "tensor",
     "heatmap",
+    "ocr",
 ]

@@ -25,6 +25,10 @@ REQUIRED_IMPORTS = {
     "groundingdino": "groundingdino",
     "clip": "clip",
     "chainner_ext": "chainner_ext",
+    "paddleocr": "paddleocr",
+    "paddle": "paddlepaddle",
+    "pytesseract": "pytesseract",
+    "faster_coco_eval": "faster-coco-eval",
 }
 
 

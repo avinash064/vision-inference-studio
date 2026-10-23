@@ -26,6 +26,7 @@ const ignoreGenerated = (source) => {
 
 fs.cpSync(path.join(projectRoot, 'backend', 'inference_studio'), path.join(target, 'backend', 'inference_studio'), { recursive: true, filter: ignoreGenerated })
 fs.cpSync(path.join(projectRoot, 'config'), path.join(target, 'config'), { recursive: true, filter: ignoreGenerated })
+fs.cpSync(path.join(projectRoot, 'third_party'), path.join(target, 'third_party'), { recursive: true, filter: ignoreGenerated })
 // VIS_FRONTEND_DIST lets a build use a production bundle written outside frontend/dist.
 fs.cpSync(process.env.VIS_FRONTEND_DIST || path.join(projectRoot, 'frontend', 'dist'), path.join(target, 'dist'), { recursive: true })
 // Prebuilt groundingdino/clip wheels (setup-runtime.sh installs them offline) and the chaiNNer source.

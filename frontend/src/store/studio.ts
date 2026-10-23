@@ -24,6 +24,7 @@ export interface CanvasSeed { image?: Asset; model?: { family: string; weightId?
 const PREVIEW_FOR_RESULT: Record<string, [string, string]> = {
   detections: ['detection_preview', 'Detection Preview'], segmentation: ['segmentation_preview', 'Segmentation Preview'],
   feature_map: ['feature_preview', 'Feature Preview'], embedding: ['feature_preview', 'Feature Preview'], tensor: ['tensor_preview', 'Tensor Preview'],
+  ocr: ['ocr_preview', 'OCR Preview'],
 }
 
 let sequence = 1
@@ -66,10 +67,11 @@ export const useStudio = create<StudioState>((set, get) => ({
     // A size named in the path (rfdetr-base) beats the first listed size; one-letter YOLO sizes are too ambiguous to match.
     const namedSize = sizes.sizes.filter((key) => key.length >= 4 && hint.includes(key.toLowerCase().replace(/[^a-z0-9]/g, ''))).sort((a, b) => b.length - a.length)[0]
     const size = sizes.sizes.includes('custom') ? 'custom' : namedSize || sizes.sizes[0]
+    const patchSize = catalog?.patch_sizes?.[size]?.[0] || 0
     const defaults = (type: string) => Object.fromEntries((state.definitions.find((item) => item.type === type)?.config || []).filter((field) => field.default !== null && field.default !== undefined).map((field) => [field.id, field.default]))
     const [previewType, previewLabel] = PREVIEW_FOR_RESULT[catalog?.result_type || 'detections'] || PREVIEW_FOR_RESULT.detections
     const imageConfig = image ? { asset_id: image.asset_id, asset_filename: image.filename, asset_width: image.width, asset_height: image.height, asset_size_bytes: image.size_bytes, upload_state: 'ready' } : {}
-    const modelConfig = { ...defaults('model'), family, version, size, device, precision: device.startsWith('cuda') ? 'fp16' : 'fp32', ...(chosen?.family === family && chosen.weightId ? { weight_id: chosen.weightId } : {}) }
+    const modelConfig = { ...defaults('model'), family, version, size, patch_size: patchSize, device, precision: device.startsWith('cuda') ? 'fp16' : 'fp32', ...(chosen?.family === family && chosen.weightId ? { weight_id: chosen.weightId } : {}) }
     set({
       nodes: [
         { id: imageId, type: 'studio', position: { x: 80, y: 160 }, data: { nodeType: 'image_source', label: 'Image', config: imageConfig } },

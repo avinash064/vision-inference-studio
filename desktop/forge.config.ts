@@ -12,6 +12,7 @@ const config: ForgeConfig = {
     extraResource: [
       path.join(resources, 'backend'),
       path.join(resources, 'config'),
+      path.join(resources, 'third_party'),
       path.join(resources, 'dist'),
       path.join(resources, 'packaging'),
       path.join(resources, 'assets'),
@@ -40,6 +41,7 @@ const config: ForgeConfig = {
           categories: ['Graphics', 'Development', 'Science'],
           maintainer: 'Vision Inference Studio',
           homepage: 'https://github.com/avinash064/auto-annotation',
+          depends: ['tesseract-ocr', 'tesseract-ocr-eng'],
           icon: path.join(__dirname, 'assets', 'icon.png'),
           desktopTemplate: path.join(root, 'packaging', 'linux', 'vision-inference-studio.desktop'),
           scripts: {

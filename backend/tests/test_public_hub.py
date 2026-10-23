@@ -149,6 +149,22 @@ def test_unknown_torch_model_requires_adapter(tmp_path):
     assert result.state.value == "ADAPTER_REQUIRED" and result.candidate_adapter is None
 
 
+def test_model_inspector_recognizes_rtdetr_from_checkpoint_path(tmp_path):
+    checkpoint = tmp_path / "weights" / "RT-DETR" / "best.pt"
+    checkpoint.parent.mkdir(parents=True); checkpoint.write_bytes(b"never loaded during inspection")
+    result = ModelCompatibilityInspector().inspect(tmp_path)
+    assert result.state.value == "READY" and result.candidate_adapter == "rtdetr"
+    assert result.artifact_file == "weights/RT-DETR/best.pt"
+
+
+def test_model_inspector_recognizes_official_rtdetrv2_pth_from_checkpoint_path(tmp_path):
+    checkpoint = tmp_path / "weights" / "RT-DETRv2" / "best.pth"
+    checkpoint.parent.mkdir(parents=True); checkpoint.write_bytes(b"never loaded during inspection")
+    result = ModelCompatibilityInspector().inspect(tmp_path)
+    assert result.state.value == "READY" and result.candidate_adapter == "rtdetrv2"
+    assert result.artifact_file == "weights/RT-DETRv2/best.pth"
+
+
 @pytest.mark.asyncio
 async def test_background_download_completes_and_registers(tmp_path):
     settings = _settings(tmp_path); settings.prepare()
@@ -401,6 +417,17 @@ def test_credential_store_validates_persists_without_echo_and_removes(monkeypatc
     monkeypatch.delenv("HF_TOKEN", raising=False)
 
 
+def test_credential_store_keeps_vllm_bearer_token_server_side(monkeypatch, tmp_path):
+    provider = FakeProvider(); provider.name = "huggingface"; provider.display_name = "Hugging Face"
+    store = ProviderCredentialStore(tmp_path / ".env", ExternalProviderRegistry([provider]))
+    result = store.update("vllm", ProviderCredentialUpdate(api_key="private-vllm-token"))
+    assert result == {"provider": "vllm", "auth_state": "CONFIGURED", "configured": True}
+    assert "private-vllm-token" not in json.dumps(store.status())
+    assert "VLLM_API_KEY='private-vllm-token'" in (tmp_path / ".env").read_text()
+    assert store.remove("vllm")["configured"] is False
+    monkeypatch.delenv("VLLM_API_KEY", raising=False)
+
+
 def test_dataset_sample_import_creates_a_reusable_canvas_image_asset(tmp_path):
     settings = _settings(tmp_path); settings.prepare(); _, dataset = _registered_dataset(tmp_path / "source")
     app = create_app(settings); app.state.services.imported_assets.datasets.put(dataset.dataset_id, dataset.model_dump(mode="json"))
@@ -428,7 +455,7 @@ def test_ambiguous_model_artifact_files_can_be_listed_and_registered(tmp_path):
     from inference_studio.public_hub.schemas import InspectionState, ModelInspection
     settings = _settings(tmp_path); settings.prepare()
     root = tmp_path / "bmd"  # mirrors iisc-aim/BMD-45: several checkpoints, only some with a built-in adapter
-    for relative in ("weights/YOLOv12-S/best.pt", "weights/RF-DETR/checkpoint_best_total.pth", "weights/D-FINE/best_stg1.pth", ".cache/huggingface/stale.pt", "README.md"):
+    for relative in ("weights/YOLOv12-S/best.pt", "weights/RT-DETR/rtdetr-l.pt", "weights/RT-DETRv2/best.pth", "weights/RF-DETR/checkpoint_best_total.pth", "weights/D-FINE/best_stg1.pth", ".cache/huggingface/stale.pt", "README.md"):
         (root / relative).parent.mkdir(parents=True, exist_ok=True); (root / relative).write_bytes(b"checkpoint-" + relative.encode())
     app = create_app(settings)
     resource = ExternalResource(ref=ExternalResourceRef(provider="huggingface", kind=ResourceKind.MODEL, resource_id="iisc-aim/BMD-45", revision="1"), title="BMD-45", resolved_revision="1")
@@ -444,8 +471,11 @@ def test_ambiguous_model_artifact_files_can_be_listed_and_registered(tmp_path):
         unknown_family = client.post(f"{base}/artifacts/register", json={"relative_path": "weights/D-FINE/best_stg1.pth", "family": "nope"})
         weights = client.get("/api/v1/weights").json()
         after = client.get(base).json(); relisted = client.get(f"{base}/artifacts").json()
-    assert set(files) == {"weights/YOLOv12-S/best.pt", "weights/RF-DETR/checkpoint_best_total.pth", "weights/D-FINE/best_stg1.pth"}  # .cache and non-weights skipped
+    assert set(files) == {"weights/YOLOv12-S/best.pt", "weights/RT-DETR/rtdetr-l.pt", "weights/RT-DETRv2/best.pth", "weights/RF-DETR/checkpoint_best_total.pth", "weights/D-FINE/best_stg1.pth"}  # .cache and non-weights skipped
     assert files["weights/YOLOv12-S/best.pt"]["suggested_family"] == "yolo" and "yolo" in files["weights/YOLOv12-S/best.pt"]["families"]
+    assert files["weights/RT-DETR/rtdetr-l.pt"]["suggested_family"] == "rtdetr"
+    assert files["weights/RT-DETRv2/best.pth"]["suggested_family"] == "rtdetrv2"
+    assert "rtdetrv2" in files["weights/RT-DETRv2/best.pth"]["families"]
     assert files["weights/RF-DETR/checkpoint_best_total.pth"]["suggested_family"] == "rfdetr"
     assert files["weights/D-FINE/best_stg1.pth"]["suggested_family"] is None
     assert registered.status_code == 201 and repeated.json()["weight_id"] == registered.json()["weight_id"]
@@ -453,3 +483,25 @@ def test_ambiguous_model_artifact_files_can_be_listed_and_registered(tmp_path):
     assert after["weight_id"] == registered.json()["weight_id"] and len(after["registered_weights"]) == 1 and "local_root" not in after
     assert next(item for item in relisted["files"] if item["relative_path"] == "weights/YOLOv12-S/best.pt")["weight_id"] == registered.json()["weight_id"]
     assert traversal.status_code == 404 and wrong_extension.status_code == 422 and unknown_family.status_code == 422
+
+
+def test_path_detection_repairs_legacy_rfdetr_registration_for_rtdetrv2(tmp_path):
+    from inference_studio.public_hub.schemas import InspectionState, ModelInspection
+
+    settings = _settings(tmp_path); settings.prepare()
+    root = tmp_path / "bmd"
+    checkpoint = root / "weights" / "RT-DETRv2" / "best.pth"
+    checkpoint.parent.mkdir(parents=True); checkpoint.write_bytes(b"native-rtdetrv2-checkpoint")
+    app = create_app(settings)
+    resource = ExternalResource(ref=ExternalResourceRef(provider="huggingface", kind=ResourceKind.MODEL, resource_id="iisc-aim/BMD-45", revision="1"), title="BMD-45", resolved_revision="1")
+    artifact = app.state.services.imported_assets.register_model(root, resource, ModelInspection(state=InspectionState.AMBIGUOUS, explanation="test"))
+    base = f"/api/v1/assets/models/{artifact.model_artifact_id}/artifacts"
+    with TestClient(app) as client:
+        legacy = client.post(f"{base}/register", json={"relative_path": "weights/RT-DETRv2/best.pth", "family": "rfdetr"})
+        repaired = client.get(base).json()["files"][0]
+        correct = client.post(f"{base}/register", json={"relative_path": "weights/RT-DETRv2/best.pth", "family": "rtdetrv2"})
+        relisted = client.get(base).json()["files"][0]
+    assert legacy.status_code == 201
+    assert repaired["suggested_family"] == "rtdetrv2" and repaired["weight_id"] is None
+    assert correct.status_code == 201
+    assert relisted["suggested_family"] == "rtdetrv2" and relisted["weight_id"] == correct.json()["weight_id"]

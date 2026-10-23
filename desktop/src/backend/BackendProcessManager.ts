@@ -53,6 +53,7 @@ export class BackendProcessManager {
         // Private Hugging Face cache (SAM processor, Grounding DINO's BERT); an optional HF_TOKEN goes in
         // ~/.config/vision-inference-studio/.env.
         HF_HOME: process.env.HF_HOME || path.join(this.paths.dataRoot, 'huggingface'),
+        PADDLE_HOME: process.env.PADDLE_HOME || path.join(this.paths.dataRoot, 'paddle'),
         VIS_ENV_FILE: path.join(this.paths.configRoot, '.env'),
       },
       stdio: ['ignore', 'pipe', 'pipe'],

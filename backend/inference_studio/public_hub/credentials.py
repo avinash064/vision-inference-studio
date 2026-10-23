@@ -12,6 +12,7 @@ PROVIDER_KEYS = {
     "huggingface": ("HF_TOKEN",),
     "roboflow": ("ROBOFLOW_API_KEY",),
     "kaggle": ("KAGGLE_API_TOKEN", "KAGGLE_USERNAME", "KAGGLE_KEY"),
+    "vllm": ("VLLM_API_KEY",),
 }
 
 
@@ -26,11 +27,17 @@ class ProviderCredentialStore:
         self.env_file, self.providers = env_file.resolve(), providers
 
     def status(self) -> list[dict]:
-        return [{
+        values = [{
             "provider": value["id"], "display_name": value["display_name"],
             "auth_state": value["auth_state"], "configured": value["auth_state"] != AuthState.NOT_CONFIGURED.value,
             "fields": self.fields(value["id"]),
         } for value in self.providers.list()]
+        values.append({
+            "provider": "vllm", "display_name": "vLLM endpoint",
+            "auth_state": AuthState.CONFIGURED.value if os.getenv("VLLM_API_KEY") else AuthState.NOT_CONFIGURED.value,
+            "configured": bool(os.getenv("VLLM_API_KEY")), "fields": self.fields("vllm"),
+        })
+        return values
 
     @staticmethod
     def fields(provider: str) -> list[dict]:
@@ -40,6 +47,8 @@ class ProviderCredentialStore:
             return [{"id": "api_key", "label": "Roboflow API key", "secret": True, "placeholder": "Enter API key"}]
         if provider == "huggingface":
             return [{"id": "token", "label": "Hugging Face token", "secret": True, "placeholder": "hf_…"}]
+        if provider == "vllm":
+            return [{"id": "api_key", "label": "vLLM bearer token", "secret": True, "placeholder": "Enter the optional server token"}]
         return []
 
     def update(self, provider: str, payload: ProviderCredentialUpdate) -> dict:
@@ -51,7 +60,7 @@ class ProviderCredentialStore:
             for key in PROVIDER_KEYS[provider]:
                 os.environ.pop(key, None)
             os.environ.update(values)
-            state = self.providers.get(provider).test_auth() if payload.test_before_save else AuthState.CONFIGURED
+            state = self.providers.get(provider).test_auth() if payload.test_before_save and provider != "vllm" else AuthState.CONFIGURED
             if state != AuthState.CONFIGURED:
                 raise CredentialError(f"{provider} authentication failed; credentials were not saved")
             self._write(values, set(PROVIDER_KEYS[provider]) - set(values))
@@ -88,6 +97,10 @@ class ProviderCredentialStore:
             value = self._secret(payload.api_key)
             if not value: raise CredentialError("Roboflow API key is required")
             return {"ROBOFLOW_API_KEY": value}
+        if provider == "vllm":
+            value = self._secret(payload.api_key)
+            if not value: raise CredentialError("vLLM bearer token is required")
+            return {"VLLM_API_KEY": value}
         value = self._secret(payload.api_token)
         if not value: raise CredentialError("Kaggle API token is required")
         return {"KAGGLE_API_TOKEN": value}

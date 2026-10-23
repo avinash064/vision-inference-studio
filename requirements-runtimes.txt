@@ -6,3 +6,6 @@ onnxruntime-gpu>=1.20,<2
 rfdetr>=1.4,<1.7  # 1.11+ rejects the legacy RF-DETR-large checkpoint (patch_size 14 vs 16)
 transformers>=4.48,<6
 safetensors>=0.4,<1
+paddleocr>=3.6,<4
+paddlepaddle>=3.0,<4
+pytesseract>=0.3.13,<0.4

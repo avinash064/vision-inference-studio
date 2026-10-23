@@ -11,6 +11,7 @@ export interface AppPaths {
   configRoot: string
   runtimeRoot: string
   runtimePython: string
+  managedRuntime: boolean
   runtimeMetadata: string
   weights: string
   workflows: string
@@ -29,6 +30,12 @@ export function resolveAppPaths(): AppPaths {
   const configRoot = path.join(configHome, 'vision-inference-studio')
   const appRoot = app.isPackaged ? process.resourcesPath : path.resolve(__dirname, '..', '..')
   const runtimeRoot = path.join(dataRoot, 'runtime')
+  const runtimeConfig = path.join(configRoot, 'python-runtime')
+  let configuredPython = process.env.VIS_PYTHON?.trim()
+  if (!configuredPython) {
+    try { configuredPython = fs.readFileSync(runtimeConfig, 'utf8').trim() } catch { /* use the managed runtime */ }
+  }
+  const runtimePython = configuredPython ? path.resolve(configuredPython) : path.join(runtimeRoot, 'venv', 'bin', 'python')
   return {
     appRoot,
     frontendDist: app.isPackaged ? path.join(appRoot, 'dist') : path.join(appRoot, 'frontend', 'dist'),
@@ -36,7 +43,8 @@ export function resolveAppPaths(): AppPaths {
     dataRoot,
     configRoot,
     runtimeRoot,
-    runtimePython: path.join(runtimeRoot, 'venv', 'bin', 'python'),
+    runtimePython,
+    managedRuntime: !configuredPython,
     runtimeMetadata: path.join(runtimeRoot, 'runtime-version.json'),
     weights: path.join(dataRoot, 'weights'),
     workflows: path.join(dataRoot, 'workflows'),

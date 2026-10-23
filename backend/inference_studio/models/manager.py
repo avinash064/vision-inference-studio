@@ -71,7 +71,7 @@ class ModelManager:
     @staticmethod
     def model_id(value: ModelConfig | ModelKey) -> str:
         key = value.model_key() if isinstance(value, ModelConfig) else value
-        return f"{key.family}:{key.version}:{key.size}:{key.weight_id}:{key.device}:{key.precision}"
+        return f"{key.family}:{key.version}:{key.size}:patch{key.patch_size}:{key.weight_id}:{key.device}:{key.precision}:{key.ocr_language}:{key.endpoint_url}:{key.endpoint_model}"
 
     def _entry(self, value: ModelConfig | ModelKey) -> ManagedModel:
         key = value.model_key() if isinstance(value, ModelConfig) else value
@@ -89,9 +89,13 @@ class ModelManager:
                 return entry.loaded
             entry.state, entry.error = ModelState.LOADING, None
             try:
-                weight = self.weights.get(key.weight_id, key.family)
-                entry.loaded = await asyncio.to_thread(entry.adapter.load, key, __import__("pathlib").Path(weight.path))
-                entry.loaded.checkpoint_sha256 = weight.sha256
+                family = self.registry.validate_selection(key.family, key.version, key.size)
+                if family.requires_weights:
+                    weight = self.weights.get(key.weight_id, key.family)
+                    entry.loaded = await asyncio.to_thread(entry.adapter.load, key, __import__("pathlib").Path(weight.path))
+                    entry.loaded.checkpoint_sha256 = weight.sha256
+                else:
+                    entry.loaded = await asyncio.to_thread(entry.adapter.load, key, __import__("pathlib").Path())
                 entry.state = ModelState.LOADED
                 return entry.loaded
             except Exception as exc:

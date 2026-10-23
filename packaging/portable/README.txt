@@ -1,7 +1,7 @@
-Vision Inference Studio 0.6.0 - Linux x86_64 test build
+Vision Inference Studio 0.6.3 - Linux x86_64 test build
 =======================================================
 
-Models included: YOLO, RF-DETR, SAM, SAM 2.1, SAM 3, Grounding DINO (+ chaiNNer nodes)
+Models included: YOLO, RT-DETR, RF-DETR, PaddleOCR, Tesseract, vLLM, SAM, SAM 2.1, SAM 3, Grounding DINO (+ chaiNNer nodes)
 
 Requirements on the test machine
   - 64-bit Linux (x86_64) with a desktop session, glibc 2.28+ (Ubuntu 20.04+, Debian 11+)
@@ -12,15 +12,15 @@ Requirements on the test machine
   - 16 GB RAM recommended (loading SAM 3 briefly needs 6-7 GB)
 
 Option A - Debian package (Ubuntu/Debian, needs sudo)
-  sudo apt install ./vision-inference-studio_0.6.0_amd64.deb
+  sudo apt install ./vision-inference-studio_0.6.3_amd64.deb
   mkdir -p ~/.local/share/vision-inference-studio
   cp -a ../data/. ~/.local/share/vision-inference-studio/
   Launch "Vision Inference Studio" from the app menu.
   Remove with: sudo apt remove vision-inference-studio
 
 Option B - Portable, per-user install (any distro)
-  tar -xzf vision-inference-studio-0.6.0-linux-x64.tar.gz
-  cd vision-inference-studio-0.6.0-linux-x64
+  tar -xzf vision-inference-studio-0.6.3-linux-x64.tar.gz
+  cd vision-inference-studio-0.6.3-linux-x64
   ./install.sh --data ../data
   Launch from the app menu or run ~/.local/bin/vision-inference-studio
   On Ubuntu 23.10+ install.sh asks for sudo once to set up Chromium's sandbox helper.

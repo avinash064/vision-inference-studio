@@ -17,7 +17,7 @@ class ModelConfig(BaseModel):
     family: str
     version: str
     size: str
-    weight_id: str
+    weight_id: str = ""
     device: str = "cpu"
     precision: Literal["fp32", "fp16"] = "fp32"
     confidence: float = Field(default=0.25, ge=0, le=1)
@@ -29,9 +29,15 @@ class ModelConfig(BaseModel):
     box_prompt: str = ""
     mask_threshold: float = Field(default=0.0, ge=-10, le=10)
     multimask: bool = False
+    ocr_language: str = "en"
+    endpoint_url: str = ""
+    endpoint_model: str = ""
+    # Zero keeps old workflows backward compatible and lets the adapter infer
+    # the family default. RF-DETR exposes explicit 14/16 choices in the UI.
+    patch_size: Literal[0, 14, 16] = 0
 
     def model_key(self) -> "ModelKey":
-        return ModelKey(**self.model_dump(include={"family", "version", "size", "weight_id", "device", "precision"}))
+        return ModelKey(**self.model_dump(include={"family", "version", "size", "weight_id", "device", "precision", "ocr_language", "endpoint_url", "endpoint_model", "patch_size"}))
 
     def inference_request(self) -> "InferenceRequest":
         return InferenceRequest(**self.model_dump(include={"confidence", "text_prompt", "text_threshold", "prompt_mode", "point_prompt", "point_foreground", "box_prompt", "mask_threshold", "multimask"}))
@@ -45,6 +51,10 @@ class ModelKey:
     weight_id: str
     device: str = "cpu"
     precision: Literal["fp32", "fp16"] = "fp32"
+    ocr_language: str = "en"
+    endpoint_url: str = ""
+    endpoint_model: str = ""
+    patch_size: Literal[0, 14, 16] = 0
 
 
 @dataclass(frozen=True)
@@ -120,7 +130,7 @@ class ModelAdapter(ABC):
             pass
 
     def metadata(self, model: LoadedModel) -> dict[str, Any]:
-        metadata: dict[str, Any] = {"adapter": self.name, "family": model.key.family, "version": model.key.version, "size": model.key.size, "device": model.key.device, "precision": model.key.precision, "weight": model.weight_path.name}
+        metadata: dict[str, Any] = {"adapter": self.name, "family": model.key.family, "version": model.key.version, "size": model.key.size, "device": model.key.device, "precision": model.key.precision, "weight": model.weight_path.name or None}
         try:
             import torch
             if model.key.device.startswith("cuda") and torch.cuda.is_available():

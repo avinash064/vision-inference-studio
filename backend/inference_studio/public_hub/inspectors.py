@@ -140,8 +140,14 @@ class ModelCompatibilityInspector:
             return ModelInspection(state=InspectionState.AMBIGUOUS, architecture=architecture, explanation="Multiple incompatible artifact formats were found; select an artifact explicitly", ignored_python_files=python_files)
         artifact = candidates[0]
         suffix, name, hint = artifact.suffix.lower(), artifact.name.lower(), str(architecture or "").lower()
+        relative = artifact.relative_to(root).as_posix() if root.is_dir() else artifact.name
+        normalized_identity = "".join(character for character in f"{relative}{hint}".lower() if character.isalnum())
         if suffix == ".onnx":
             return ModelInspection(state=InspectionState.READY, framework="ONNX", architecture=architecture, candidate_adapter="onnx", artifact_file=artifact.relative_to(root).as_posix() if root.is_dir() else artifact.name, explanation="ONNX artifact can use the built-in ONNX adapter", ignored_python_files=python_files)
+        if suffix == ".pth" and "rtdetrv2" in normalized_identity:
+            return ModelInspection(state=InspectionState.READY, framework="PyTorch", architecture=architecture or "RT-DETRv2", candidate_adapter="rtdetrv2", artifact_file=relative, explanation="Artifact identity matches the built-in official RT-DETRv2 adapter", ignored_python_files=python_files)
+        if suffix == ".pt" and "rtdetr" in normalized_identity:
+            return ModelInspection(state=InspectionState.READY, framework="PyTorch", architecture=architecture or "RT-DETR", candidate_adapter="rtdetr", artifact_file=relative, explanation="Artifact identity matches the built-in Ultralytics RT-DETR adapter", ignored_python_files=python_files)
         if suffix == ".pt" and any(token in name + hint for token in ("yolo", "ultralytics")):
             return ModelInspection(state=InspectionState.READY, framework="PyTorch", architecture=architecture or "Ultralytics", candidate_adapter="yolo", artifact_file=artifact.relative_to(root).as_posix() if root.is_dir() else artifact.name, explanation="Artifact metadata identifies a supported Ultralytics family", ignored_python_files=python_files)
         if suffix == ".pth" and "rfdetr" in name + hint.replace("-", ""):

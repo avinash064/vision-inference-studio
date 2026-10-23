@@ -3,7 +3,7 @@ import { Box, BrainCircuit, Image, MonitorPlay, ScanLine, SlidersHorizontal, Vid
 import { useStudio } from '../../store/studio'
 import type { StudioNode as StudioNodeType } from '../../types'
 
-const icons = { image_source: Image, video_source: Video, model: BrainCircuit, image_preview: Image, detection_preview: MonitorPlay, segmentation_preview: ScanLine, feature_preview: ScanLine, tensor_preview: Box, video_preview: MonitorPlay }
+const icons = { image_source: Image, video_source: Video, model: BrainCircuit, image_preview: Image, detection_preview: MonitorPlay, segmentation_preview: ScanLine, ocr_preview: ScanLine, feature_preview: ScanLine, tensor_preview: Box, video_preview: MonitorPlay }
 
 export function StudioNode({ id, data, selected }: NodeProps<StudioNodeType>) {
   const definition = useStudio((state) => state.definitions.find((item) => item.type === data.nodeType))

@@ -15,6 +15,7 @@ pytestmark = pytest.mark.integration
 
 @pytest.mark.parametrize("family,weight_env,version,size", [
     ("yolo", "VIS_YOLO_WEIGHT", "v11", "custom"),
+    ("rtdetr", "VIS_RTDETR_WEIGHT", "ultralytics", "custom"),
     ("rfdetr", "VIS_RFDETR_WEIGHT", "v1", "large"),
 ])
 def test_real_video_frames_use_one_loaded_model(family, weight_env, version, size):

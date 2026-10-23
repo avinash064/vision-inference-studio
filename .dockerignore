@@ -7,6 +7,7 @@
 !requirements-prompt-models.txt
 !backend/
 !config/
+!third_party/
 !frontend/
 backend/tests
 frontend/node_modules

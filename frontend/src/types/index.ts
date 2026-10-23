@@ -8,7 +8,7 @@ export interface NodeDefinition { type: string; label: string; category: string;
 export interface StudioNodeData extends Record<string, unknown> { nodeType: string; label: string; config: Record<string, unknown>; state?: string }
 export type StudioNode = Node<StudioNodeData>
 export type StudioEdge = Edge
-export interface ModelFamily { display_name: string; adapter: string; result_type: DataType; extensions: string[]; versions: Record<string, { sizes: string[] }>; prompt_modes: Array<'text' | 'point' | 'box'>; controls?: Array<'text_threshold' | 'mask_threshold' | 'multimask'> }
+export interface ModelFamily { display_name: string; adapter: string; result_type: DataType; extensions: string[]; versions: Record<string, { sizes: string[] }>; requires_weights: boolean; prompt_modes: Array<'text' | 'point' | 'box'>; controls?: Array<'text_threshold' | 'mask_threshold' | 'multimask'>; runtime_fields?: Array<'ocr_language' | 'endpoint_url' | 'endpoint_model'>; patch_sizes?: Record<string, number[]> }
 export interface ModelCatalog { families: Record<string, ModelFamily> }
 export interface Weight { weight_id: string; family: string; filename: string; sha256: string; size_bytes: number }
 export interface Asset { asset_id: string; kind: 'image' | 'video'; filename: string; width: number; height: number; size_bytes: number; codec?: string; frame_count?: number; fps?: number; duration_seconds?: number }

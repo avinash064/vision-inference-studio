@@ -82,3 +82,21 @@ def test_sam_output_connects_only_to_segmentation_preview(model_registry, stores
     )
     result = WorkflowValidator(NodeRegistry(), model_registry, weights, assets).validate(workflow)
     assert result.valid, result.issues
+
+
+def test_weightless_ocr_model_validates_and_connects_to_ocr_preview(model_registry, stores, registered_files):
+    weights, assets = stores
+    _, asset = registered_files
+    workflow = Workflow(
+        nodes=[
+            NodeInstance(id="source", type="image_source", config={"asset_id": asset.asset_id}),
+            NodeInstance(id="model", type="model", config={"family": "tesseract", "version": "5", "size": "system", "device": "cpu", "precision": "fp32", "ocr_language": "en"}),
+            NodeInstance(id="preview", type="ocr_preview"),
+        ],
+        edges=[
+            Edge(id="one", source="source", source_handle="image", target="model", target_handle="input"),
+            Edge(id="two", source="model", source_handle="output", target="preview", target_handle="result"),
+        ],
+    )
+    result = WorkflowValidator(NodeRegistry(), model_registry, weights, assets).validate(workflow)
+    assert result.valid, result.issues

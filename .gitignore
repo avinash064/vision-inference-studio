@@ -23,6 +23,7 @@ workspace/chainner-storage/*
 workspace/public-hub/*
 workspace/*.json
 weights/yolo/*
+weights/rtdetr/*
 weights/rfdetr/*
 weights/dinov3/*
 weights/grounding-dino/*

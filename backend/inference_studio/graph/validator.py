@@ -32,6 +32,12 @@ class WorkflowValidator:
                 continue
             for field in definition.config:
                 value = node.config.get(field.id, field.default)
+                if node.type == "model" and field.id == "weight_id":
+                    try:
+                        if not self.models.get(str(node.config.get("family"))).requires_weights:
+                            continue
+                    except ModelRegistryError:
+                        pass
                 if field.required and (value is None or value == ""):
                     issues.append(ValidationIssue(code="required_config", message=f"{field.label} is required", node_id=node.id))
                 if isinstance(value, (int, float)):
@@ -129,11 +135,27 @@ class WorkflowValidator:
                     raise AssetError(f"Expected a {expected} asset")
             except AssetError as exc:
                 issues.append(ValidationIssue(code="invalid_asset", message=str(exc), node_id=node.id))
-        if node.type == "model" and all(node.config.get(key) not in (None, "") for key in ("family", "version", "size", "weight_id")):
+        if node.type == "model" and all(node.config.get(key) not in (None, "") for key in ("family", "version", "size")):
             try:
                 config = ModelConfig.model_validate(node.config)
                 family = self.models.validate_selection(config.family, config.version, config.size)
-                self.weights.get(config.weight_id, config.family)
+                allowed_patch_sizes = family.patch_sizes.get(config.size, [])
+                if config.patch_size and allowed_patch_sizes and config.patch_size not in allowed_patch_sizes:
+                    raise ValueError(
+                        f"{config.family} {config.size} does not support patch size {config.patch_size}; "
+                        f"choose {', '.join(map(str, allowed_patch_sizes))}"
+                    )
+                if family.requires_weights:
+                    if not config.weight_id:
+                        raise ValueError("Weights are required")
+                    self.weights.get(config.weight_id, config.family)
+                if "ocr_language" in family.runtime_fields and not config.ocr_language.strip():
+                    raise ValueError("OCR language is required")
+                if "endpoint_url" in family.runtime_fields:
+                    if not config.endpoint_url.startswith(("http://", "https://")):
+                        raise ValueError("Endpoint URL must start with http:// or https://")
+                if "endpoint_model" in family.runtime_fields and not config.endpoint_model.strip():
+                    raise ValueError("Endpoint model is required")
                 if config.precision == "fp16" and config.device == "cpu":
                     raise ValueError("fp16 requires a CUDA device")
                 if family.prompt_modes:

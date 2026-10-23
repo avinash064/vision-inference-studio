@@ -27,6 +27,7 @@ dnspython==2.8.0
 email-validator==2.3.0
 fastapi==0.111.0
 fastapi-cli==0.0.24
+faster-coco-eval==1.7.2
 ffmpeg-python==0.2.0
 filelock==3.29.0
 flatbuffers==25.12.19
@@ -69,6 +70,8 @@ opencv-python==4.13.0.92
 opencv-python-headless==4.10.0.84
 orjson==3.11.9
 packaging==26.2
+paddleocr==3.7.0
+paddlepaddle==3.3.1
 peft==0.19.1
 pillow==12.2.0
 pillow-avif-plugin==1.5.5
@@ -82,6 +85,7 @@ pycocotools==2.0.11
 pydantic==2.13.4
 pydantic_core==2.46.4
 pyparsing==3.3.2
+pytesseract==0.3.13
 python-dateutil==2.9.0.post0
 python-dotenv==1.2.2
 python-multipart==0.0.20

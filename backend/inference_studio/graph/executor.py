@@ -392,7 +392,7 @@ class ExecutionEngine:
             await self.publish(execution, {"type": "preview", "event": "preview_ready", "node_id": node.id, "url": prediction_url, "prediction_url": prediction_url, "result": {"result_type": "heatmap", "statistics": value.statistics, "shape": [value.grid_height, value.grid_width]}, "render_ms": (perf_counter() - started) * 1000})
             return {"prediction_url": prediction_url}
         output = inputs["result"]
-        expected = {"detection_preview": "detections", "segmentation_preview": "segmentation", "feature_preview": ("feature_map", "embedding"), "tensor_preview": "tensor"}[node.type]
+        expected = {"detection_preview": "detections", "segmentation_preview": "segmentation", "ocr_preview": "ocr", "feature_preview": ("feature_map", "embedding"), "tensor_preview": "tensor"}[node.type]
         if output.result.result_type not in ((expected,) if isinstance(expected, str) else expected):
             raise ValueError(f"{node.type} cannot render {output.result.result_type}")
         canvas = self.renderers.render(output.image, output.result)
@@ -437,7 +437,7 @@ class ExecutionEngine:
                 total_frame_ms = (perf_counter() - frame_started) * 1000
                 frame_result = VideoFrameResult(frame_index=packet.index, timestamp_seconds=packet.timestamp_seconds, result=result)
                 frame_metrics = {"decode_ms": packet.decode_ms, "preprocess_ms": result.metrics.preprocess_ms, "inference_ms": result.metrics.inference_ms, "postprocess_ms": result.metrics.postprocess_ms, "render_ms": render_ms, "publish_ms": 0.0, "total_frame_ms": total_frame_ms, "model_fps": 1000 / result.metrics.inference_ms if result.metrics.inference_ms else 0, "effective_fps": 1000 / total_frame_ms if total_frame_ms else 0}
-                event = {"type": "video_frame", "event": "frame_processed", "node_id": node_id, "frame": packet.index, "frame_index": packet.index, "frame_count": stream.asset.frame_count, "timestamp_seconds": packet.timestamp_seconds, "duration_seconds": stream.asset.duration_seconds, "progress": (packet.index + 1) / max(stream.asset.frame_count or 1, 1), "fps": stream.asset.fps, "url": url, "preview_url": url, "model": model, "frame_result": frame_result.model_dump(mode="json"), "result": result.model_dump(mode="json"), "metrics": frame_metrics, "object_count": len(getattr(result, "detections", getattr(result, "masks", []))), "gpu": gpu}
+                event = {"type": "video_frame", "event": "frame_processed", "node_id": node_id, "frame": packet.index, "frame_index": packet.index, "frame_count": stream.asset.frame_count, "timestamp_seconds": packet.timestamp_seconds, "duration_seconds": stream.asset.duration_seconds, "progress": (packet.index + 1) / max(stream.asset.frame_count or 1, 1), "fps": stream.asset.fps, "url": url, "preview_url": url, "model": model, "frame_result": frame_result.model_dump(mode="json"), "result": result.model_dump(mode="json"), "metrics": frame_metrics, "object_count": len(getattr(result, "detections", getattr(result, "masks", getattr(result, "spans", [])))), "gpu": gpu}
                 publish_started = perf_counter()
                 await self.publish(execution, event)
                 frame_metrics["publish_ms"] = (perf_counter() - publish_started) * 1000

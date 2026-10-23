@@ -42,4 +42,4 @@ def test_desktop_http_requires_session_token(monkeypatch, tmp_path: Path):
 
 
 def test_runtime_check_covers_all_required_engines():
-    assert {"fastapi", "uvicorn", "pydantic", "cv2", "numpy", "torch", "torchvision", "ultralytics", "rfdetr", "onnxruntime", "transformers", "safetensors", "groundingdino", "clip", "chainner_ext"} == set(REQUIRED_IMPORTS)
+    assert {"fastapi", "uvicorn", "pydantic", "cv2", "numpy", "torch", "torchvision", "ultralytics", "rfdetr", "onnxruntime", "transformers", "safetensors", "groundingdino", "clip", "chainner_ext", "paddleocr", "paddle", "pytesseract", "faster_coco_eval"} == set(REQUIRED_IMPORTS)

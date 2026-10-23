@@ -1,5 +1,7 @@
 import { app, BrowserWindow, dialog, Menu, session, shell } from 'electron'
 import crypto from 'node:crypto'
+import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import { BackendProcessManager } from './backend/BackendProcessManager'
 import { RuntimeManager, type RuntimeProgress } from './backend/RuntimeManager'
@@ -17,6 +19,15 @@ let backend: BackendProcessManager | undefined
 let quitting = false
 let quitReady = false
 
+// Select the stable application profile before Electron acquires its singleton
+// lock. Packaged builds otherwise lock Electron's display-name profile and then
+// switch to our lowercase profile during boot, which can leave launches unable
+// to find or notify the existing instance.
+const configHome = process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config')
+const userDataPath = path.join(configHome, 'vision-inference-studio')
+fs.mkdirSync(userDataPath, { recursive: true, mode: 0o700 })
+app.setPath('userData', userDataPath)
+
 if (!app.requestSingleInstanceLock()) app.quit()
 
 app.setName('Vision Inference Studio')
@@ -27,7 +38,7 @@ async function boot(): Promise<void> {
   prepareUserDirectories(paths)
   app.setPath('userData', paths.configRoot)
   const electronLog = path.join(paths.logs, 'electron.log')
-  appendBoundedLog(electronLog, `Desktop ${APP_VERSION} starting; packaged=${app.isPackaged}`)
+  appendBoundedLog(electronLog, `Desktop ${APP_VERSION} starting; packaged=${app.isPackaged}; python=${paths.runtimePython}; managed_runtime=${paths.managedRuntime}`)
   const runtime = new RuntimeManager(paths, APP_VERSION)
   backend = new BackendProcessManager(paths, sessionToken)
   mainWindow = createMainWindow(paths)

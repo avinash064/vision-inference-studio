@@ -498,16 +498,26 @@ def list_model_artifact_files(model_artifact_id: str, request: Request):
     asset, root = _model_root(request, model_artifact_id)
     families = services(request).models.manifest.families
     extensions = {extension for family in families.values() for extension in family.extensions}
-    registered = {item.relative_path: item for item in asset.registered_weights}
+    registered: dict[str, list] = {}
+    for item in asset.registered_weights:
+        registered.setdefault(item.relative_path, []).append(item)
     files = []
     for path in sorted(root.rglob("*")) if root.is_dir() else [root]:
         relative = path.relative_to(root).as_posix() if root.is_dir() else path.name
         if not path.is_file() or path.suffix.lower() not in extensions or relative.startswith(".cache/") or "/." in f"/{relative}":
             continue
         compatible = sorted(name for name, family in families.items() if path.suffix.lower() in family.extensions)
-        entry = registered.get(relative)
+        detected = _suggest_family(relative, compatible)
+        entries = registered.get(relative, [])
+        # A path-specific family match is stronger evidence than an older
+        # manual registration.  This repairs cases such as RT-DETRv2 .pth
+        # files that were previously registered as RF-DETR merely because it
+        # was the only .pth family offered by the UI.
+        entry = next((item for item in reversed(entries) if item.family == detected), None)
+        if entry is None and detected is None:
+            entry = next((item for item in reversed(entries) if item.family in compatible), None)
         files.append({"relative_path": relative, "size_bytes": path.stat().st_size, "families": compatible,
-                      "suggested_family": entry.family if entry else _suggest_family(relative, compatible),
+                      "suggested_family": detected or (entry.family if entry else None),
                       "weight_id": entry.weight_id if entry else None})
         if len(files) >= _ARTIFACT_LISTING_LIMIT:
             break

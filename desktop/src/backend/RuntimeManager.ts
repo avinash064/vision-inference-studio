@@ -19,6 +19,8 @@ export interface RuntimeStatus {
   exists: boolean
   valid: boolean
   needsUpdate: boolean
+  managed: boolean
+  python: string
   expectedHash: string
   metadata?: RuntimeMetadata
   reason?: string
@@ -28,7 +30,7 @@ export class RuntimeManager {
   constructor(private readonly paths: AppPaths, private readonly appVersion: string) {}
 
   runtimeExists(): boolean {
-    return fs.existsSync(this.paths.runtimePython) && fs.existsSync(this.paths.runtimeMetadata)
+    return fs.existsSync(this.paths.runtimePython) && (!this.paths.managedRuntime || fs.existsSync(this.paths.runtimeMetadata))
   }
 
   requirementsHash(): string {
@@ -46,6 +48,7 @@ export class RuntimeManager {
   }
 
   runtimeNeedsUpdate(): boolean {
+    if (!this.paths.managedRuntime) return false
     const value = this.metadata()
     return !value || value.app_version !== this.appVersion || value.requirements_hash !== this.requirementsHash()
   }
@@ -61,8 +64,8 @@ export class RuntimeManager {
   getRuntimeStatus(): RuntimeStatus {
     const metadata = this.metadata()
     const exists = this.runtimeExists()
-    const needsUpdate = !metadata || metadata.app_version !== this.appVersion || metadata.requirements_hash !== this.requirementsHash()
-    return { exists, valid: exists && !needsUpdate, needsUpdate, expectedHash: this.requirementsHash(), metadata, reason: !exists ? 'Runtime is not installed' : needsUpdate ? 'Runtime update required' : undefined }
+    const needsUpdate = this.paths.managedRuntime && (!metadata || metadata.app_version !== this.appVersion || metadata.requirements_hash !== this.requirementsHash())
+    return { exists, valid: exists && !needsUpdate, needsUpdate, managed: this.paths.managedRuntime, python: this.paths.runtimePython, expectedHash: this.requirementsHash(), metadata, reason: !exists ? `Python runtime not found: ${this.paths.runtimePython}` : needsUpdate ? 'Runtime update required' : undefined }
   }
 
   install(progress?: (value: RuntimeProgress) => void): Promise<RuntimeStatus> { return this.runSetup('install', progress) }
@@ -70,6 +73,9 @@ export class RuntimeManager {
   reinstall(progress?: (value: RuntimeProgress) => void): Promise<RuntimeStatus> { return this.runSetup('reinstall', progress) }
 
   private runSetup(mode: RuntimeMode, progress?: (value: RuntimeProgress) => void): Promise<RuntimeStatus> {
+    if (!this.paths.managedRuntime) {
+      return this.runtimeExists() ? Promise.resolve(this.getRuntimeStatus()) : Promise.reject(new Error(`Configured Python runtime not found: ${this.paths.runtimePython}`))
+    }
     return new Promise((resolve, reject) => {
       const child = spawn('bash', [this.paths.setupScript, '--mode', mode], {
         cwd: this.paths.appRoot,

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-APP_VERSION="${VIS_APP_VERSION:-0.6.0}"
+APP_VERSION="${VIS_APP_VERSION:-0.6.3}"
 SCRIPT_PATH="$(readlink -f "${BASH_SOURCE[0]}")"
 SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
 APP_ROOT="${VIS_APP_ROOT:-$(cd "$SCRIPT_DIR/../.." && pwd)}"

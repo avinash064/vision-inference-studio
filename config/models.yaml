@@ -3,23 +3,68 @@ families:
     display_name: YOLO
     adapter: yolo
     result_type: detections
-    extensions: [.pt]
+    # Native Ultralytics checkpoints plus compatible exported v7 models.
+    extensions: [.pt, .onnx, .engine]
     versions:
+      v3:
+        sizes: [base, tiny, spp, custom]
+      v5:
+        sizes: [n, s, m, l, x, custom]
+      v6:
+        sizes: [n, s, m, l, l6, custom]
+      v7-export:
+        sizes: [tiny, base, x, custom]
       v8:
         sizes: [n, s, m, l, x, custom]
+      v9:
+        sizes: [t, s, m, c, e, custom]
+      v10:
+        sizes: [n, s, m, b, l, x, custom]
       v11:
         sizes: [n, s, m, l, x, custom]
       v12:
         sizes: [n, s, m, l, x, custom]
+      v26:
+        sizes: [n, s, m, l, x, custom]
+
+  rtdetr:
+    # Ultralytics RT-DETR-L / RT-DETR-X and compatible custom .pt checkpoints.
+    display_name: RT-DETR
+    adapter: rtdetr
+    result_type: detections
+    extensions: [.pt]
+    versions:
+      ultralytics:
+        sizes: [l, x, custom]
+
+  rtdetrv2:
+    # Native checkpoint from the official lyuwenyu/RT-DETR PyTorch runtime.
+    # This is deliberately separate from Ultralytics RT-DETR: their checkpoint
+    # containers and model construction paths are not interchangeable.
+    display_name: RT-DETRv2 (Official PyTorch)
+    adapter: rtdetrv2
+    result_type: detections
+    extensions: [.pth]
+    versions:
+      bmd-45:
+        sizes: [r101-x]
 
   rfdetr:
     display_name: RF-DETR
     adapter: rfdetr
     result_type: detections
     extensions: [.pth, .pt]
+    # Patch size changes the backbone architecture, not merely preprocessing.
+    # Large supports both generations; the other sizes have one valid layout.
+    patch_sizes:
+      base: [14]
+      nano: [16]
+      small: [16]
+      medium: [16]
+      large: [14, 16]
     versions:
       v1:
-        sizes: [nano, small, medium, base, large]
+        sizes: [base, nano, small, medium, large]
 
   dinov3:
     display_name: DINOv3
@@ -76,6 +121,40 @@ families:
     versions:
       "3.0":
         sizes: [base]
+
+  paddleocr:
+    display_name: PaddleOCR
+    adapter: paddleocr
+    result_type: ocr
+    extensions: []
+    requires_weights: false
+    runtime_fields: [ocr_language]
+    versions:
+      PP-OCRv5:
+        sizes: [server, mobile]
+
+  tesseract:
+    display_name: Tesseract OCR
+    adapter: tesseract
+    result_type: ocr
+    extensions: []
+    requires_weights: false
+    runtime_fields: [ocr_language]
+    versions:
+      "5":
+        sizes: [system]
+
+  vllm:
+    display_name: vLLM Vision / OCR
+    adapter: vllm
+    result_type: ocr
+    extensions: []
+    requires_weights: false
+    prompt_modes: [text]
+    runtime_fields: [ocr_language, endpoint_url, endpoint_model]
+    versions:
+      openai-compatible:
+        sizes: [remote]
 
   onnx:
     display_name: Generic ONNX

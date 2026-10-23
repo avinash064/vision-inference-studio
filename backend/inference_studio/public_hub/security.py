@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 
 
-SECRET_ENVIRONMENTS = ("HF_TOKEN", "HUGGING_FACE_HUB_TOKEN", "ROBOFLOW_API_KEY", "KAGGLE_API_TOKEN", "KAGGLE_KEY")
+SECRET_ENVIRONMENTS = ("HF_TOKEN", "HUGGING_FACE_HUB_TOKEN", "ROBOFLOW_API_KEY", "KAGGLE_API_TOKEN", "KAGGLE_KEY", "VLLM_API_KEY")
 
 
 def redact_error(error: Exception | str) -> str:
