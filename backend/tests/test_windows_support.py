@@ -224,7 +224,9 @@ def test_archive_members_with_drive_letters_are_rejected_on_every_platform(tmp_p
 
 def test_windows_invalid_archive_names_fail_clearly_on_windows_only(tmp_path, monkeypatch):
     archive = _zip(tmp_path / "names.zip", "train/images/frame:01.jpg")
-    safe_extract_archive(archive, tmp_path / "linux-out", 10_000, 10_000)  # legal on Linux: behaviour unchanged
+    if os.name != "nt":  # a ':' file name can only be created on POSIX filesystems
+        monkeypatch.setattr(integrity, "IS_WINDOWS", False)
+        safe_extract_archive(archive, tmp_path / "linux-out", 10_000, 10_000)  # legal on Linux: behaviour unchanged
     monkeypatch.setattr(integrity, "IS_WINDOWS", True)
     with pytest.raises(IntegrityError, match="cannot be created on Windows"):
         safe_extract_archive(archive, tmp_path / "windows-out", 10_000, 10_000)
@@ -250,6 +252,7 @@ def test_runtime_installer_hash_matches_the_desktop_shell_formula():
 
 def test_runtime_installer_finds_interpreters_in_both_layouts(tmp_path, monkeypatch):
     setup = _setup_runtime()
+    monkeypatch.setattr(setup, "IS_WINDOWS", False)
     (tmp_path / "linux" / "bin").mkdir(parents=True)
     (tmp_path / "linux" / "bin" / "python3.12").write_text("")
     (tmp_path / "linux" / "bin" / "python3.12-config").write_text("")
