@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import zipfile
 from pathlib import Path
 
@@ -445,7 +446,8 @@ def test_credential_store_validates_persists_without_echo_and_removes(monkeypatc
     assert result == {"provider": "huggingface", "auth_state": "CONFIGURED", "configured": True}
     assert "hf_test_value" not in json.dumps(result) and "hf_test_value" not in json.dumps(store.status())
     assert "HF_TOKEN='hf_test_value'" in (tmp_path / ".env").read_text()
-    assert oct((tmp_path / ".env").stat().st_mode & 0o777) == "0o600"
+    if os.name != "nt":  # Windows has no POSIX mode bits; %APPDATA% is protected by the per-user ACL instead
+        assert oct((tmp_path / ".env").stat().st_mode & 0o777) == "0o600"
     removed = store.remove("huggingface")
     assert removed["configured"] is False and "HF_TOKEN=" not in (tmp_path / ".env").read_text()
     monkeypatch.delenv("HF_TOKEN", raising=False)
