@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import zipfile
 from pathlib import Path
 
@@ -25,10 +26,16 @@ from inference_studio.public_hub.integrity import IntegrityError, safe_extract_a
 from inference_studio.public_hub.registry import ExternalProviderRegistry
 from inference_studio.public_hub.recipes import RecipeRegistry
 from inference_studio.public_hub.schemas import (
-    AuthState, BenchmarkCreate, DownloadState, ExternalResource, ExternalResourceRef,
+    AuthState, BenchmarkCreate, CanvasRecipePromoteRequest, DownloadState, ExternalResource, ExternalResourceRef,
     ExperimentState, InferenceExperiment, PromoteRequest, ProviderCapabilities, ProviderCredentialUpdate, RecipeVariant,
     ResourceDownloadRequest, ResourceKind, SearchPage,
 )
+
+
+def test_checkpoint_family_suggestion_distinguishes_yolo_segmentation():
+    families = ["yolo", "yolo-seg", "rtdetr"]
+    assert api_routes._suggest_family("weights/yolo11n-seg.pt", families) == "yolo-seg"
+    assert api_routes._suggest_family("weights/yolo11n.pt", families) == "yolo"
 
 
 class FakeProvider(ExternalProvider):
@@ -341,6 +348,7 @@ def test_public_hub_api_surface_is_registered(tmp_path):
     paths = {route.path for route in app.routes}
     assert "/api/v1/public-hub/downloads" in paths
     assert "/api/v1/experiments/{experiment_id}/promote" in paths
+    assert "/api/v1/recipes/from-canvas" in paths
     assert "/api/v1/recipes/execute" in paths
 
 
@@ -378,6 +386,33 @@ def test_promoted_recipe_is_pinned_versioned_and_auto_annotation_compatible(tmp_
     assert "workflow" not in public and len(recipes.list()) == 2
 
 
+def test_canvas_workflow_can_be_frozen_directly_for_auto_annotation(tmp_path):
+    assets, _dataset = _registered_dataset(tmp_path)
+    benchmarks = BenchmarkRegistry(tmp_path / "benchmarks", assets)
+    model_registry = ModelRegistry.load(Path(__file__).parents[2] / "config/models.yaml")
+    weights = WeightStore(tmp_path / "weights", model_registry, 1024)
+    weight = weights.save(io.BytesIO(b"inert onnx fixture"), "model.onnx", "onnx")
+    workflow = {
+        "version": "0.2", "name": "Canvas workspace",
+        "nodes": [
+            {"id": "source", "type": "image_source", "config": {}},
+            {"id": "model", "type": "model", "config": {"family": "onnx", "version": "generic", "size": "custom", "weight_id": weight.weight_id, "device": "cpu", "precision": "fp32"}},
+            {"id": "preview", "type": "tensor_preview", "config": {}},
+        ],
+        "edges": [
+            {"id": "e1", "source": "source", "source_handle": "image", "target": "model", "target_handle": "input"},
+            {"id": "e2", "source": "model", "source_handle": "output", "target": "preview", "target_handle": "result"},
+        ],
+    }
+    recipes = RecipeRegistry(tmp_path / "recipes", benchmarks, weights)
+    recipe = recipes.promote_canvas(CanvasRecipePromoteRequest(workflow=workflow, name="Direct Canvas"))
+    assert recipe.lifecycle.value == "PROMOTED"
+    assert recipe.promotion_source == "CANVAS"
+    assert recipe.benchmark_id is None and recipe.source_experiment_id is None
+    assert recipe.weight_sha256 == weight.sha256
+    assert recipes.get(recipe.recipe_id, 1).workflow_hash == recipe.workflow_hash
+
+
 def test_detection_evaluation_computes_real_precision_recall_and_map():
     item = {"classes": ["helmet"], "ground_truth": [{"label": "helmet", "bbox": [0, 0, 10, 10], "polygons": []}]}
     result = {"result_type": "detections", "detections": [{"label": "helmet", "bbox": [0, 0, 10, 10], "confidence": .9}]}
@@ -411,7 +446,8 @@ def test_credential_store_validates_persists_without_echo_and_removes(monkeypatc
     assert result == {"provider": "huggingface", "auth_state": "CONFIGURED", "configured": True}
     assert "hf_test_value" not in json.dumps(result) and "hf_test_value" not in json.dumps(store.status())
     assert "HF_TOKEN='hf_test_value'" in (tmp_path / ".env").read_text()
-    assert oct((tmp_path / ".env").stat().st_mode & 0o777) == "0o600"
+    if os.name != "nt":  # Windows has no POSIX mode bits; %APPDATA% is protected by the per-user ACL instead
+        assert oct((tmp_path / ".env").stat().st_mode & 0o777) == "0o600"
     removed = store.remove("huggingface")
     assert removed["configured"] is False and "HF_TOKEN=" not in (tmp_path / ".env").read_text()
     monkeypatch.delenv("HF_TOKEN", raising=False)

@@ -1,0 +1,133 @@
+# Windows x64 desktop build: tests on Windows, Squirrel installer, packaged-app smoke test, checksums.
+# The CUDA runtime is installed on the user's machine at first launch (PyTorch alone is 2.4 GB, beyond the
+# installer size limits), so this job needs no GPU; GPU acceptance runs on real NVIDIA hardware (docs/WINDOWS.md).
+name: Windows desktop
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+  pull_request:
+    paths: ["backend/**", "desktop/**", "frontend/**", "packaging/**", "requirements*.txt", "pyproject.toml", ".github/workflows/windows-desktop.yml"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-desktop-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHONUTF8: "1"
+
+jobs:
+  windows-x64:
+    runs-on: windows-latest
+    timeout-minutes: 120
+    env:
+      HAS_SIGNING_CERT: ${{ secrets.WINDOWS_CERTIFICATE_BASE64 != '' }}
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            frontend/package-lock.json
+            desktop/package-lock.json
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Frontend (npm ci, type-check, production build)
+        working-directory: frontend
+        run: |
+          $ErrorActionPreference = 'Stop'; $PSNativeCommandUseErrorActionPreference = $true  # fail on the first failing command
+          npm ci
+          npm run build
+
+      - name: Desktop (npm ci, TypeScript, unit tests)
+        working-directory: desktop
+        run: |
+          $ErrorActionPreference = 'Stop'; $PSNativeCommandUseErrorActionPreference = $true  # fail on the first failing command
+          npm ci
+          npm test
+
+      - name: Backend test dependencies (CPU PyTorch; same versions as the lock)
+        run: |
+          $ErrorActionPreference = 'Stop'; $PSNativeCommandUseErrorActionPreference = $true  # fail on the first failing command
+          python -m pip install --upgrade pip
+          # The lock pins CUDA builds; tests use the CPU build of the same torch release.
+          python -c "import re,pathlib; lines=pathlib.Path('requirements-lock.txt').read_text().splitlines(); pathlib.Path('ci-constraints.txt').write_text('\n'.join(l for l in lines if not re.match(r'(torch|torchvision|nvidia-|triton)\b', l, re.I)))"
+          python -m pip install -c ci-constraints.txt -r requirements-dev.txt
+          python -m pip install --index-url https://download.pytorch.org/whl/cpu torch==2.5.1 torchvision==0.20.1
+          python -m pip install -c ci-constraints.txt scipy rfdetr ultralytics
+
+      - name: Build the bundled Grounding DINO and CLIP wheels (pure Python, pinned commits)
+        run: |
+          $ErrorActionPreference = 'Stop'; $PSNativeCommandUseErrorActionPreference = $true
+          # Same sources as desktop/scripts/build-wheels.sh; groundingdino's setup.py imports torch (installed above).
+          $sources = Select-String -Path requirements-prompt-models.txt -Pattern '^(groundingdino|clip) @ git\+' | ForEach-Object { $_.Line }
+          python -m pip wheel --no-deps --no-build-isolation -w desktop/wheels @sources
+          Get-ChildItem desktop/wheels
+
+      - name: Backend tests on Windows
+        env:
+          PYTHONPATH: backend
+        run: python -m pytest -q backend/tests --junitxml=test-results/backend-windows.xml
+
+      - name: Record the Windows x64 dependency resolution (full runtime, wheels only)
+        run: |
+          $ErrorActionPreference = 'Stop'; $PSNativeCommandUseErrorActionPreference = $true  # fail on the first failing command
+          python -m pip install uv
+          New-Item -ItemType Directory -Force release-windows | Out-Null
+          uv pip compile requirements-desktop.txt -c requirements-lock.txt --python-platform x86_64-pc-windows-msvc --python-version 3.12 --extra-index-url https://download.pytorch.org/whl/cu121 --index-strategy unsafe-best-match --only-binary :all: --no-header -o release-windows/requirements-windows-resolved.txt
+
+      - name: Code-signing certificate (only when secrets are configured)
+        if: env.HAS_SIGNING_CERT == 'true'
+        env:
+          CERT: ${{ secrets.WINDOWS_CERTIFICATE_BASE64 }}
+        run: |
+          $path = Join-Path $env:RUNNER_TEMP "signing.pfx"
+          [IO.File]::WriteAllBytes($path, [Convert]::FromBase64String($env:CERT))
+          "WINDOWS_CERTIFICATE_FILE=$path" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Package Electron app and Squirrel installer
+        working-directory: desktop
+        env:
+          VIS_FRONTEND_DIST: ${{ github.workspace }}/frontend/dist
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: |
+          $ErrorActionPreference = 'Stop'; $PSNativeCommandUseErrorActionPreference = $true
+          node scripts/stage-resources.mjs
+          npx electron-forge make --platform=win32 --arch=x64
+
+      - name: Smoke test the packaged app (bundled Python, backend, graceful shutdown, Electron launch)
+        run: python packaging/windows/smoke_test.py --app-dir "desktop/out/Vision Inference Studio-win32-x64" --work "$env:RUNNER_TEMP/vis-smoke"
+
+      - name: Checksums and release metadata
+        if: always()
+        run: |
+          New-Item -ItemType Directory -Force release-windows | Out-Null
+          Get-ChildItem desktop/out/make -Recurse -File -Include *.exe,*.nupkg,*.zip,RELEASES -ErrorAction SilentlyContinue | ForEach-Object { Copy-Item $_.FullName release-windows/ }
+          Copy-Item "$env:RUNNER_TEMP/vis-smoke/smoke-report.json" release-windows/ -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force release-windows/smoke-logs | Out-Null
+          Get-ChildItem "$env:RUNNER_TEMP/vis-smoke" -Recurse -File -Include *.out,*.log -ErrorAction SilentlyContinue | ForEach-Object { Copy-Item $_.FullName release-windows/smoke-logs/ }
+          Copy-Item test-results/backend-windows.xml release-windows/ -ErrorAction SilentlyContinue
+          Push-Location release-windows
+          Get-ChildItem -File | Where-Object { $_.Name -match '\.(exe|nupkg|zip)$|^RELEASES$' } | Select-Object -ExpandProperty Name | Sort-Object | ForEach-Object { "{0}  {1}" -f (Get-FileHash $_ -Algorithm SHA256).Hash.ToLower(), $_ } | Set-Content -Encoding ascii SHA256SUMS
+          Get-Content SHA256SUMS
+          Pop-Location
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: vision-inference-studio-windows-x64
+          path: release-windows/
+          if-no-files-found: warn
+          retention-days: 30

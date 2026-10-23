@@ -1,6 +1,7 @@
 import type { Asset, BenchmarkReport, ChainnerSettingsPayload, Device, ExecutionEvent, ModelCatalog, NodeDefinition, SystemMetrics, ValidationIssue, Weight } from '../types'
 
-let apiBase = import.meta.env.VITE_API_URL || `http://${location.hostname}:8000`
+const configuredApiBase = import.meta.env.VITE_API_URL
+let apiBase = configuredApiBase === 'same-origin' ? location.origin : configuredApiBase || `http://${location.hostname}:8000`
 let sessionToken = ''
 
 export const getApiBase = () => apiBase
@@ -56,7 +57,21 @@ export const api = {
   promoteExperiment: (id: string, variantId: string, name?: string) => request<any>(`/api/v1/experiments/${id}/promote`, { method: 'POST', body: JSON.stringify({ variant_id: variantId, name }) }),
   recipes: () => request<any[]>('/api/v1/recipes'),
   recipe: (id: string) => request<any>(`/api/v1/recipes/${id}`),
+  promoteCanvasRecipe: (workflow: unknown, name = 'Canvas recipe') => request<any>('/api/v1/recipes/from-canvas', { method: 'POST', body: JSON.stringify({ workflow, name }) }),
+  autoAnnotationRecipes: () => request<any[]>('/api/v1/auto-annotation/recipes'),
+  autoAnnotationPreflight: (id: string, version: number) => request<any>(`/api/v1/auto-annotation/recipes/${encodeURIComponent(id)}/versions/${version}/preflight`, { method: 'POST' }),
+  autoAnnotationInspect: (payload: any) => request<any>('/api/v1/auto-annotation/sources/inspect', { method: 'POST', body: JSON.stringify(payload) }),
+  autoAnnotationSamplingPreview: (payload: any) => request<any>('/api/v1/auto-annotation/previews/sampling', { method: 'POST', body: JSON.stringify(payload) }),
+  autoAnnotationInferencePreview: (payload: any) => request<any>('/api/v1/auto-annotation/previews/inference', { method: 'POST', body: JSON.stringify(payload) }),
+  autoAnnotationCreate: (payload: any) => request<any>('/api/v1/auto-annotation/runs', { method: 'POST', body: JSON.stringify(payload) }),
+  autoAnnotationRuns: () => request<any[]>('/api/v1/auto-annotation/runs'),
+  autoAnnotationRun: (id: string) => request<any>(`/api/v1/auto-annotation/runs/${encodeURIComponent(id)}`),
+  autoAnnotationReviewItems: (id: string, offset = 0, limit = 100, predictionFilter = 'ALL') => request<any>(`/api/v1/auto-annotation/runs/${encodeURIComponent(id)}/review-items?${new URLSearchParams({ offset: String(offset), limit: String(limit), prediction_filter: predictionFilter })}`),
+  autoAnnotationReviewItem: (runId: string, itemId: string) => request<any>(`/api/v1/auto-annotation/runs/${encodeURIComponent(runId)}/items/${encodeURIComponent(itemId)}`),
+  autoAnnotationAction: (id: string, action: 'cancel' | 'resume') => request<any>(`/api/v1/auto-annotation/runs/${encodeURIComponent(id)}/${action}`, { method: 'POST' }),
+  autoAnnotationUploadCommand: (id: string, provider: 'gcs' | 's3', destination: string) => request<any>(`/api/v1/auto-annotation/runs/${encodeURIComponent(id)}/upload-command`, { method: 'POST', body: JSON.stringify({ provider, destination }) }),
   weights: () => request<Weight[]>('/api/v1/weights'),
+  runtimeDiagnostics: () => request<any>('/api/v1/runtime/diagnostics'),
   validate: (workflow: unknown) => request<{ valid: boolean; issues: ValidationIssue[] }>('/api/v1/workflows/validate', { method: 'POST', body: JSON.stringify(workflow) }),
   run: (workflow: unknown) => request<{ run_id: string; state: string }>('/api/v1/workflows/run', { method: 'POST', body: JSON.stringify(workflow) }),
   save: (workflow: unknown) => request<{ workflow_id: string }>('/api/v1/workflows', { method: 'POST', body: JSON.stringify(workflow) }),

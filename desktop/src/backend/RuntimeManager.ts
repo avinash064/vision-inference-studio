@@ -76,11 +76,17 @@ export class RuntimeManager {
     if (!this.paths.managedRuntime) {
       return this.runtimeExists() ? Promise.resolve(this.getRuntimeStatus()) : Promise.reject(new Error(`Configured Python runtime not found: ${this.paths.runtimePython}`))
     }
+    const { command, args } = this.paths.setupCommand(mode)
+    if (process.platform === 'win32' && !fs.existsSync(command)) {
+      return Promise.reject(new Error('The bundled Python runtime is missing from the installation. Reinstall Vision Inference Studio.'))
+    }
     return new Promise((resolve, reject) => {
-      const child = spawn('bash', [this.paths.setupScript, '--mode', mode], {
+      // Argument array, no shell: paths with spaces or Unicode (C:\Users\Zoë\...) are passed verbatim.
+      const child = spawn(command, args, {
         cwd: this.paths.appRoot,
-        env: { ...process.env, VIS_APP_ROOT: this.paths.appRoot, VIS_APP_VERSION: this.appVersion },
+        env: { ...process.env, VIS_APP_ROOT: this.paths.appRoot, VIS_APP_VERSION: this.appVersion, VIS_DATA_DIR: this.paths.dataRoot, PYTHONUTF8: '1' },
         stdio: ['ignore', 'pipe', 'pipe'],
+        windowsHide: true,
       })
       let tail = ''
       const consume = (chunk: Buffer) => {

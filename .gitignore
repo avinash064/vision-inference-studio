@@ -1,6 +1,8 @@
 .env
 .env.*
 !.env.example
+!docker/windows.env.example
+docker/windows.env
 .venv/
 __pycache__/
 *.py[cod]
@@ -50,3 +52,9 @@ benchmarks/run_*.json
 
 # Frozen Mahalanobis geometries (calibration artifacts tied to local data)
 feature_geometries/
+
+# Windows/Docker host exchange directories retain only their placeholders.
+docker/imports/*
+docker/exports/*
+!docker/imports/.gitkeep
+!docker/exports/.gitkeep

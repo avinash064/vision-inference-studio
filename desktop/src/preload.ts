@@ -8,6 +8,11 @@ contextBridge.exposeInMainWorld('visionDesktop', {
   installRuntime: () => ipcRenderer.invoke('runtime:install'),
   retryBackend: () => ipcRenderer.invoke('runtime:retry-backend'),
   getRuntimeStatus: () => ipcRenderer.invoke('runtime:status'),
+  selectAutoAnnotationFolder: () => ipcRenderer.invoke('desktop:select-auto-annotation-folder'),
+  selectAutoAnnotationVideo: () => ipcRenderer.invoke('desktop:select-auto-annotation-video'),
+  openLogs: () => ipcRenderer.invoke('desktop:open-logs'),
+  platform: process.platform,
+  openAutoAnnotationOutput: (path: string) => ipcRenderer.invoke('desktop:open-auto-annotation-output', path),
   quit: () => ipcRenderer.invoke('desktop:quit'),
   onRuntimeProgress: (callback: (value: Progress) => void) => {
     const listener = (_event: Electron.IpcRendererEvent, value: Progress) => callback(value)

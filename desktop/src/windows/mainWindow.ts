@@ -50,14 +50,15 @@ function shellPage(title: string, body: string, script: string): string {
 }
 
 export async function showRuntimeSetup(window: BrowserWindow, runtimeRoot: string, updateRequired = false): Promise<void> {
-  const body = `<small>VISION INFERENCE STUDIO 0.2</small><h1>${updateRequired ? 'Runtime update required' : 'Inference Runtime Setup'}</h1><p>A private Python inference runtime is required. It is installed only for your user and never modifies system Python.</p><div class="path">${runtimeRoot}</div><progress id="progress" max="9" value="0"></progress><p id="status">Ready to install</p><pre id="error" hidden></pre><div class="actions"><button class="primary" id="install">${updateRequired ? 'Update Runtime' : 'Install Runtime'}</button><button id="quit">Exit</button></div>`
+  const body = `<small>VISION INFERENCE STUDIO</small><h1>${updateRequired ? 'Runtime update required' : 'Inference Runtime Setup'}</h1><p>A private Python inference runtime is required. It is installed only for your user and never modifies system Python.</p><div class="path">${runtimeRoot}</div><progress id="progress" max="9" value="0"></progress><p id="status">Ready to install</p><pre id="error" hidden></pre><div class="actions"><button class="primary" id="install">${updateRequired ? 'Update Runtime' : 'Install Runtime'}</button><button id="quit">Exit</button></div>`
   const script = `const api=window.visionDesktop,install=document.getElementById('install'),status=document.getElementById('status'),progress=document.getElementById('progress'),error=document.getElementById('error');api.onRuntimeProgress(v=>{progress.value=v.step;status.textContent=v.message});install.onclick=async()=>{install.disabled=true;error.hidden=true;try{await api.installRuntime()}catch(e){error.hidden=false;error.textContent=String(e);install.disabled=false}};document.getElementById('quit').onclick=()=>api.quit();`
   await window.loadURL(shellPage('Runtime Setup', body, script))
 }
 
-export async function showBackendError(window: BrowserWindow, message: string, logs: string): Promise<void> {
-  const safeMessage = message.replace(/[<>&]/g, '')
-  const body = `<small>VISION INFERENCE STUDIO 0.2</small><h1>Backend could not start</h1><p>The local inference service did not become healthy. Retry after checking the runtime status and logs.</p><pre>${safeMessage}</pre><div class="path">${logs}</div><div class="actions"><button class="primary" id="retry">Retry</button><button id="quit">Exit</button></div>`
-  const script = `const retry=document.getElementById('retry');retry.onclick=async()=>{retry.disabled=true;try{await window.visionDesktop.retryBackend()}catch(e){retry.disabled=false;alert(String(e))}};document.getElementById('quit').onclick=()=>window.visionDesktop.quit();`
+export async function showBackendError(window: BrowserWindow, message: string, logs: string, runtimeLabel = ''): Promise<void> {
+  const escape = (value: string) => value.replace(/[<>&]/g, '')
+  const runtime = runtimeLabel ? `<p><b>Python runtime:</b> ${escape(runtimeLabel)}</p>` : ''
+  const body = `<small>VISION INFERENCE STUDIO</small><h1>Backend failed to start</h1><p>The local inference service did not become healthy. Retry after checking the runtime status and logs.</p>${runtime}<p><b>Error:</b></p><pre>${escape(message)}</pre><div class="path">${escape(logs)}</div><div class="actions"><button class="primary" id="retry">Retry</button><button id="logs">Open Logs</button><button id="quit">Exit</button></div>`
+  const script = `const retry=document.getElementById('retry');retry.onclick=async()=>{retry.disabled=true;try{await window.visionDesktop.retryBackend()}catch(e){retry.disabled=false;alert(String(e))}};document.getElementById('logs').onclick=()=>window.visionDesktop.openLogs();document.getElementById('quit').onclick=()=>window.visionDesktop.quit();`
   await window.loadURL(shellPage('Backend Error', body, script))
 }

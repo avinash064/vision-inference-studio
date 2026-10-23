@@ -11,13 +11,13 @@ from .rtdetrv2 import RtDetrV2Adapter
 from .sam import SamAdapter
 from .tesseract import TesseractAdapter
 from .ultralytics_sam import Sam2Adapter, Sam3Adapter
-from .yolo import YoloAdapter
+from .yolo import YoloAdapter, YoloSegAdapter
 from .vllm import VllmAdapter
 
 
 class AdapterRegistry:
     def __init__(self, adapters: list[ModelAdapter] | None = None) -> None:
-        instances = adapters or [YoloAdapter(), RtDetrAdapter(), RtDetrV2Adapter(), RfDetrAdapter(), DinoV3Adapter(), GroundingDinoAdapter(), SamAdapter(), Sam2Adapter(), Sam3Adapter(), PaddleOcrAdapter(), TesseractAdapter(), VllmAdapter(), OnnxAdapter()]
+        instances = adapters or [YoloAdapter(), YoloSegAdapter(), RtDetrAdapter(), RtDetrV2Adapter(), RfDetrAdapter(), DinoV3Adapter(), GroundingDinoAdapter(), SamAdapter(), Sam2Adapter(), Sam3Adapter(), PaddleOcrAdapter(), TesseractAdapter(), VllmAdapter(), OnnxAdapter()]
         self._adapters = {adapter.name: adapter for adapter in instances}
 
     def get(self, name: str) -> ModelAdapter:

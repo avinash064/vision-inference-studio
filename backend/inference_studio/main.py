@@ -1,9 +1,6 @@
 from __future__ import annotations
 
 import os
-import signal
-import threading
-import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -12,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from inference_studio import __version__
+from inference_studio.desktop_lifecycle import watch_parent_process
 from inference_studio.adapters import AdapterRegistry
 from inference_studio.api import execution_socket, router
 from inference_studio.assets import AssetStore
@@ -32,6 +30,10 @@ from inference_studio.public_hub.experiments import ExperimentRegistry
 from inference_studio.public_hub.providers import HuggingFaceProvider, KaggleProvider, RoboflowProvider
 from inference_studio.public_hub.recipes import RecipeRegistry
 from inference_studio.public_hub.registry import ExternalProviderRegistry
+from inference_studio.auto_annotation import AutoAnnotationManager
+from inference_studio.auto_annotation.recipe_runner import RecipeExecutor
+from inference_studio.auto_annotation.routes import router as auto_annotation_router
+from inference_studio.auto_annotation.sources import SourceService
 
 
 @dataclass
@@ -55,34 +57,7 @@ class Services:
     experiments: ExperimentRegistry | None = None
     recipes: RecipeRegistry | None = None
     credentials: ProviderCredentialStore | None = None
-
-
-def watch_parent_process(parent_pid: int, interval: float = 2.0) -> threading.Thread:
-    """Shut down when the desktop shell that started this backend is gone.
-
-    The shell stops the backend on a clean quit, but a crash, SIGKILL or a signal handled by Chromium skips
-    that, leaving an orphaned backend holding loaded models (GBs of GPU memory)."""
-
-    # When the shell spawned us directly, being re-parented also means it died (immune to zombies/PID reuse).
-    direct_child = os.getppid() == parent_pid
-
-    def run() -> None:
-        while True:
-            time.sleep(interval)
-            try:
-                os.kill(parent_pid, 0)
-                gone = direct_child and os.getppid() != parent_pid
-            except ProcessLookupError:
-                gone = True
-            except PermissionError:
-                gone = False
-            if gone:
-                os.kill(os.getpid(), signal.SIGTERM)  # graceful uvicorn shutdown releases the GPU
-                return
-
-    thread = threading.Thread(target=run, name="parent-watchdog", daemon=True)
-    thread.start()
-    return thread
+    auto_annotation: AutoAnnotationManager | None = None
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -119,12 +94,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     experiments = ExperimentRegistry(config.public_hub_root / "metadata", benchmark_registry, imported_assets, assets, engine)
     recipes = RecipeRegistry(config.public_hub_root / "metadata" / "recipes", benchmark_registry, weights)
     credentials = ProviderCredentialStore(Path(os.getenv("VIS_ENV_FILE", config.project_root / ".env")).expanduser(), providers)
+    annotation_sources = SourceService(
+        assets, config.auto_annotation_input_roots, config.workspace_dir / "auto-annotation-previews",
+        # Desktop mode remembers files/folders the user picked in the native dialog (see /desktop/approve-path).
+        approvals_file=(config.config_dir / "approved-input-roots.json") if os.getenv("VIS_DESKTOP_MODE") == "1" and config.config_dir else None,
+    )
+    recipe_executor = RecipeExecutor(recipes, experiments, validator, models, weights)
+    auto_annotation = AutoAnnotationManager(config.auto_annotation_root, config.auto_annotation_output_root, annotation_sources, recipes, recipe_executor)
     app = FastAPI(title="Vision Inference Studio", version=__version__)
-    app.state.services = Services(config, nodes, models, weights, assets, manager, validator, engine, WorkflowStore(config.workflows_dir), chainner, chainner_settings, geometries, providers, imported_assets, downloads, benchmark_registry, experiments, recipes, credentials)
+    app.state.services = Services(config, nodes, models, weights, assets, manager, validator, engine, WorkflowStore(config.workflows_dir), chainner, chainner_settings, geometries, providers, imported_assets, downloads, benchmark_registry, experiments, recipes, credentials, auto_annotation)
     app.add_middleware(CORSMiddleware, allow_origins=["null", "http://localhost:5173", "http://127.0.0.1:5173", "http://localhost:5174", "http://127.0.0.1:5174"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
     app.add_middleware(DesktopSessionMiddleware)
     app.include_router(router)
+    app.include_router(auto_annotation_router, prefix="/api/v1")
     app.mount("/previews", StaticFiles(directory=config.workspace_dir / "previews"), name="previews")
+    app.mount("/auto-annotation-previews", StaticFiles(directory=config.workspace_dir / "auto-annotation-previews"), name="auto-annotation-previews")
 
     @app.get("/health")
     def health():
@@ -137,6 +121,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def recover_background_work():
         await downloads.recover()
         await experiments.recover()
+        await auto_annotation.recover()
 
     app.add_event_handler("startup", recover_background_work)
 

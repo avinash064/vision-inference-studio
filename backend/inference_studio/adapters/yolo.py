@@ -3,20 +3,22 @@ from __future__ import annotations
 from pathlib import Path
 import numpy as np
 
-from inference_studio.results import Detection, DetectionResult
+from inference_studio.results import Detection, DetectionResult, SegmentationResult
 
 from .base import InferenceRequest, LoadedModel, ModelAdapter, ModelKey
+from .ultralytics_sam import to_segmentation
 
 
 class YoloAdapter(ModelAdapter):
     name = "yolo"
+    task = "detect"
 
     def load(self, key: ModelKey, weight_path: Path) -> LoadedModel:
         try:
             from ultralytics import YOLO
         except ImportError as exc:
             raise RuntimeError("YOLO runtime is not installed; install requirements-runtimes.txt") from exc
-        model = YOLO(str(weight_path), task="detect")
+        model = YOLO(str(weight_path), task=self.task)
         return LoadedModel(handle=model, key=key, weight_path=weight_path)
 
     def preprocess(self, model: LoadedModel, request: InferenceRequest, input_data: np.ndarray) -> np.ndarray:
@@ -33,3 +35,13 @@ class YoloAdapter(ModelAdapter):
                 index = int(class_id)
                 detections.append(Detection(bbox=box, class_id=index, label=str(names.get(index, index)), confidence=float(confidence)))
         return DetectionResult(detections=detections)
+
+
+class YoloSegAdapter(YoloAdapter):
+    """Ultralytics YOLO instance-segmentation checkpoints with the shared mask contract."""
+
+    name = "yolo-seg"
+    task = "segment"
+
+    def postprocess(self, model: LoadedModel, request: InferenceRequest, output) -> SegmentationResult:
+        return to_segmentation(output, request, semantic=True)

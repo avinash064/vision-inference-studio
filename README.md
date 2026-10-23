@@ -4,6 +4,8 @@ Vision Inference Studio is a local, production-oriented computer-vision workbenc
 
 Version 0.6.3 adds explicit RF-DETR backbone patch-size selection and native official RT-DETRv2 checkpoint execution. It also includes the Public Resource Hub, immutable benchmark experiments, promoted recipes, OCR model families, prompt-based inference, GPU/CPU monitoring, and a Linux desktop package.
 
+The Canvas includes one-click starters for YOLO, RF-DETR, RT-DETR, and segmentation workflows. Changing the Model node between detection and segmentation families automatically changes a directly connected preview to the compatible type. YOLO `*-seg` checkpoints use a dedicated instance-segmentation adapter and produce the same typed mask/polygon result contract as the SAM families.
+
 Repositories and release:
 
 - Standalone project: [avinash064/vision-inference-studio](https://github.com/avinash064/vision-inference-studio)
@@ -21,6 +23,7 @@ Repositories and release:
 - [Run from source](#run-from-source)
 - [Using the application](#using-the-application)
 - [Public Hub, experiments, and recipes](#public-hub-experiments-and-recipes)
+- [Auto Annotation v0.1](#auto-annotation-v01)
 - [Configuration](#configuration)
 - [Storage layout](#storage-layout)
 - [API overview](#api-overview)
@@ -94,13 +97,14 @@ model + preprocessing + inference + postprocessing
                          └──── back to Vision Studio
 ```
 
-Vision Studio owns inference experiments and recipe promotion. Auto Annotation Studio consumes promoted recipes and runs them over immutable datasets. Training remains a separate responsibility.
+Vision Studio owns inference experiments and recipe promotion. Its integrated Auto Annotation v0.1 module consumes promoted recipes and runs them over local media sources to create immutable, validated dataset packages. Training remains a separate responsibility.
 
 ## Supported model families
 
 | Family | Versions and sizes | Input/output | Runtime |
 |---|---|---|---|
 | YOLO | v3, v5, v6, v7-export, v8, v9, v10, v11, v12, v26 | image/video → detections | Ultralytics |
+| YOLO Segmentation | v5, v8, v9, v11, v12, v26 | image/video → masks and polygons | Ultralytics |
 | RT-DETR | Ultralytics `l`, `x`, custom | image/video → detections | Ultralytics RTDETR |
 | RT-DETRv2 | BMD-45 `R101-X` | image/video → detections | official RT-DETR PyTorch |
 | RF-DETR | base, nano, small, medium, large | image/video → detections | `rfdetr` |
@@ -121,6 +125,7 @@ The authoritative compatibility manifest is [`config/models.yaml`](config/models
 | Family | Accepted artifact |
 |---|---|
 | YOLO | `.pt`, `.onnx`, `.engine` |
+| YOLO Segmentation | `.pt`, `.onnx`, `.engine` |
 | RT-DETR | `.pt` |
 | RT-DETRv2 | `.pth` |
 | RF-DETR | `.pth`, `.pt` |
@@ -203,6 +208,7 @@ vision-inference-studio/
 │   │   ├── adapters/       # model-family integrations
 │   │   ├── api/            # HTTP and WebSocket routes
 │   │   ├── assets/         # opaque asset and weight storage
+│   │   ├── auto_annotation/# durable runs, policies, exports, package validation
 │   │   ├── chainner/       # optional preprocessing-node bridge
 │   │   ├── features/       # feature artifacts and comparisons
 │   │   ├── graph/          # schema, validation, planning, execution
@@ -250,6 +256,20 @@ chmod 600 ~/.config/vision-inference-studio/python-runtime
 ```
 
 `VIS_PYTHON=/absolute/path/to/python` is a temporary process-level override and takes precedence over the file.
+
+### Windows x64
+
+Install `Vision-Inference-Studio-Setup-<version>.exe`. It installs per user and needs no administrator rights or preinstalled Python. On first launch, **Install Runtime** creates a private runtime from the bundled CPython 3.12.15 (PyTorch CUDA 12.1 plus the model libraries, from the same pinned lock as Linux).
+
+User data lives in `%APPDATA%\Vision Inference Studio` (settings) and `%LOCALAPPDATA%\Vision Inference Studio` (weights, workflows, runtime, logs), so upgrades and uninstalls never remove it. `VIS_PYTHON` and the `python-runtime` file work the same way as on Linux.
+
+See [docs/WINDOWS.md](docs/WINDOWS.md) for:
+- GPU requirements and CUDA troubleshooting;
+- optional OCR engines;
+- Auto Annotation paths and PowerShell upload commands;
+- building the installer.
+
+The Windows build is new. Its verification status is in [docs/acceptance/windows/REPORT.md](docs/acceptance/windows/REPORT.md).
 
 ## Run from source
 
@@ -300,24 +320,28 @@ Prompt-model packages are pinned separately because some build from source:
 
 ### Docker baseline
 
+Linux, macOS, and Windows Docker Desktop can run the browser deployment. The containers do not use the host Python environment or the Linux `.deb`:
+
 ```bash
 docker compose up --build -d
 ```
 
-The frontend is published at port 5174 by default and the API at port 8000. GPU containers require the NVIDIA container runtime and a CUDA-compatible PyTorch build; they are not silently assumed by the baseline compose file.
+The frontend is published at port 5174 and proxies API/WebSocket traffic to the backend. Port 8000 remains loopback-only for health checks and API documentation. Uploaded state is kept in the `studio-data` named volume; host import/export folders are configured with `VIS_IMPORT_DIR` and `VIS_EXPORT_DIR`.
+
+Windows setup, PowerShell launchers, storage behavior, and the optional NVIDIA override are documented in [`docs/WINDOWS_DOCKER.md`](docs/WINDOWS_DOCKER.md).
 
 ## Using the application
 
 ### Build and run a canvas workflow
 
 1. Open **Canvas**.
-2. Add an **Image** or **Video** input node.
+2. On an empty Canvas, choose the **YOLO**, **RF-DETR**, **RT-DETR**, or **Segmentation** starter; alternatively, add an **Image** or **Video** input node manually.
 3. Select the node and upload or choose a registered asset.
 4. Add optional preprocessing nodes from the node library.
 5. Add the universal **Model** node.
 6. Select family, version, size, patch size where applicable, checkpoint, device, and precision.
 7. Configure request controls such as confidence, text prompt, OCR language, point prompt, or box prompt.
-8. Add the compatible Detection, Segmentation, OCR, Feature, Tensor, or Video Preview node.
+8. Add the compatible Detection, Segmentation, OCR, Feature, Tensor, or Video Preview node. For a starter graph, the preview is already connected and changes automatically when the model family changes.
 9. Connect ports, then select **Validate**.
 10. Select **Run** and monitor node state, animated active edges, streamed previews, timing, and memory metrics.
 
@@ -356,7 +380,50 @@ Downloads are staged and checked before registration. Archives are bounded, chec
 5. Compare persisted latency, memory, evaluation data, and rendered outputs.
 6. Promote the chosen workflow.
 
-A promoted recipe pins the workflow, benchmark, model/checkpoint identities, hashes, runtime requirements, and originating experiment. Auto Annotation Studio consumes promoted recipes rather than provider-specific resources.
+A promoted recipe pins the workflow, benchmark, model/checkpoint identities, hashes, runtime requirements, and originating experiment. The integrated Auto Annotation module consumes promoted recipes rather than provider-specific resources.
+
+## Auto Annotation v0.1
+
+Auto Annotation is now an integrated Vision Studio module, not a separate service. Open **AA New Run** to configure a source and policy, and **AA Runs** to monitor or recover durable work.
+
+### Supported sources and workflow
+
+1. Select an approved local image folder, or upload/select a video.
+2. Inspect source metadata before any run is created.
+3. For video, choose target FPS, time interval, or every-N-frame sampling and inspect representative decoded frames.
+4. Select an exact promoted recipe version, or explicitly choose **Pull current Canvas into AA** to validate and freeze the current workspace as a new immutable recipe version. Preflight verifies lifecycle, workflow hash, model family, adapter/runtime, checkpoint existence and SHA-256, device, precision, prompts, and graph validity.
+5. Run inference preview on representative items using the same in-process `ExecutionEngine` and `ModelManager` as Canvas.
+6. Configure deterministic retention by confidence, area, total count, class presence/count, and optional global temporal spacing.
+7. Start the durable run and follow sampled, inferred, retained, exported, and failed counters.
+8. When complete, open the package folder or generate a non-executing `gcloud storage rsync` or `aws s3 sync` command.
+9. Open **AA Review**, or choose **Review annotated media** from the run detail, to inspect boxes, polygons, keypoints, OCR text, confidence, frame timestamps, and exported images without changing the package.
+
+No browser loop performs batch inference. The backend pins a SHA-256 source snapshot, rejects source changes during preparation or resume, streams video sequentially, injects sampled frames into the promoted image workflow in memory, and writes only retained images. Per-item state is atomically checkpointed, active runs recover after restart, and a cancelled or recoverable failed run can resume without duplicating terminal items.
+
+### Output package
+
+Each `AA-<run-id>/` package contains:
+
+```text
+AA-aa_<id>/
+├── images/                 # retained images or sampled video frames only
+├── annotations/
+│   ├── canonical.jsonl     # model-independent predictions and provenance
+│   ├── coco.json           # stable image/category/annotation IDs
+│   └── yolo/
+│       ├── dataset.json
+│       └── labels/
+├── manifest.jsonl          # generated after retained media is finalized
+├── run.json                # policy, counts, states, hashes, export paths
+├── recipe.json             # exact immutable recipe pin
+├── source.json             # portable source metadata, no absolute path
+├── failures.jsonl          # structured per-item failures
+└── checksums.json          # SHA-256 for package files
+```
+
+`CanonicalPrediction` supports bounding boxes, polygons, masks, and keypoints at the schema boundary. v0.1 adapters export detection boxes, segmentation polygons, and OCR boxes/text. Discarded samples are never added to the dataset manifest. Package validation checks manifest/media agreement, image readability and dimensions, canonical provenance, COCO references, YOLO normalization, and checksums before marking a run upload-ready.
+
+The full operator and developer reference is in [`docs/AUTO_ANNOTATION_V0.1.md`](docs/AUTO_ANNOTATION_V0.1.md).
 
 ## Configuration
 
@@ -375,6 +442,9 @@ Important settings:
 | `VIS_MAX_UPLOAD_BYTES` | Maximum uploaded artifact size; default supports large SAM checkpoints |
 | `VIS_CHAINNER_SRC_DIR` | Path to a local chaiNNer `src` directory |
 | `VIS_RECIPE_INPUT_ROOTS` | Allowed server-side input roots for Auto Annotation recipe execution |
+| `VIS_AUTO_ANNOTATION_INPUT_ROOTS` | `:`-separated approved roots for image-folder and direct-video sources |
+| `VIS_AUTO_ANNOTATION_ROOT` | Durable run/item checkpoint root |
+| `VIS_AUTO_ANNOTATION_OUTPUT_ROOT` | Validated package output root |
 | `VIS_FEATURE_STORE_MAX_ENTRIES` | Bound retained feature artifacts by count |
 | `VIS_FEATURE_STORE_MAX_BYTES` | Bound retained feature artifacts by memory |
 | `VITE_API_URL` | Frontend API base URL at build/development time |
@@ -406,6 +476,8 @@ Packaged Linux application data:
 ├── weights/
 ├── workflows/
 ├── workspace/
+│   ├── auto-annotation/   # durable state and output packages
+│   └── auto-annotation-previews/ # bounded sampling previews
 ├── benchmarks/
 ├── runtime/
 └── logs/
@@ -428,7 +500,8 @@ The backend exposes versioned HTTP routes and run-specific WebSockets. Major gro
 | Public Hub | `/api/v1/public-hub/providers`, `/datasets/search`, `/models/search`, `/downloads` |
 | Credentials | `GET/PUT/DELETE /api/v1/public-hub/credentials/{provider}` |
 | Experiments | `GET/POST /api/v1/experiments`, start/cancel/promote, results |
-| Recipes | `GET /api/v1/recipes`, `POST /api/v1/recipes/execute` |
+| Recipes | `GET /api/v1/recipes`, `POST /api/v1/recipes/from-canvas`, `POST /api/v1/recipes/execute` |
+| Auto Annotation | `/api/v1/auto-annotation/recipes`, `/sources/inspect`, `/previews/*`, `/runs`, `/runs/{id}/review-items`, `/runs/{id}/items/{item_id}` |
 | Features | `GET /api/v1/features/stats` |
 
 Use `http://127.0.0.1:8000/docs` for the generated request/response schemas.
@@ -443,6 +516,7 @@ Use `http://127.0.0.1:8000/docs` for the generated request/response schemas.
 - Public archives reject absolute paths, traversal paths, links, device entries, oversized members, and excessive expansion.
 - Provider secrets remain backend-only and are never returned in API responses, workflow files, experiments, or recipes.
 - Browser-controlled arbitrary local paths are denied.
+- Auto Annotation local paths must remain under `VIS_AUTO_ANNOTATION_INPUT_ROOTS`; output-folder IPC is restricted to the configured package root.
 - Workflows contain JSON-safe configuration and opaque IDs, not tensors, model objects, frames, or file handles.
 - There are no arbitrary Python, shell, `eval`, or `exec` canvas nodes.
 - Run-owned streams and feature artifacts are released on success, error, or cancellation.
@@ -458,10 +532,10 @@ cd vision-inference-studio
 PYTHONPATH=backend /home/avinash/venv/bin/pytest -q backend/tests
 ```
 
-v0.6.3 verification result:
+Current verification result after adding Auto Annotation v0.1:
 
 ```text
-120 passed, 9 skipped
+131 passed, 9 skipped
 ```
 
 The skipped integration tests require external checkpoints, provider access, video fixtures, or GPU-specific configuration.
@@ -484,6 +558,7 @@ The v0.6.3 release passed frontend TypeScript/production bundling, desktop TypeS
 
 - BMD RF-DETR Base, patch 14: CUDA FP16 load and inference passed.
 - BMD RT-DETRv2 R101VD-X: CUDA FP16 load and inference passed.
+- Auto Annotation v0.1: a temporary promoted YOLO v11 CUDA/FP16 recipe completed one real 1920×1080 image, produced three canonical predictions, exported canonical/COCO/YOLO, and passed package validation.
 - The application started its packaged backend using `/home/avinash/venv/bin/python`.
 
 ### Release checksums
@@ -546,7 +621,8 @@ Optional imports are lazy. The rest of the application remains available when on
 
 ## Known limitations
 
-- Training is outside Vision Studio; this project performs inference experimentation and recipe promotion.
+- Training, review/HITL, CVAT synchronization, RTSP, distributed workers, cloud SDK uploads, Kafka, and Redis are outside Auto Annotation v0.1.
+- Auto Annotation v0.1 accepts image folders and local/uploaded video; imported Public Hub datasets are not yet direct run sources.
 - RTSP, distributed scheduling, remote GPU workers, and arbitrary shell/code nodes are not included.
 - Generic ONNX currently assumes a single NCHW image input and exposes the first output tensor.
 - SAM 2/3 video tracking memory and automatic Grounding-DINO-to-SAM chaining are not implemented.

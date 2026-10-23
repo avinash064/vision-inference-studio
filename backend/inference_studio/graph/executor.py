@@ -68,6 +68,8 @@ class Execution:
     pause_requested: bool = False
     scope: ExecutionScope | None = None
     plan: ExecutionPlan | None = None
+    injected_images: dict[str, ImageValue] = field(default_factory=dict)
+    persist_previews: bool = True
 
     def __post_init__(self) -> None:
         self.pause_gate.set()
@@ -88,13 +90,14 @@ class ExecutionEngine:
         self.benchmark_dir.mkdir(parents=True, exist_ok=True)
         self.executions: dict[str, Execution] = {}
 
-    def start(self, workflow: Workflow) -> Execution:
-        validation = self.validator.validate(workflow)
+    def start(self, workflow: Workflow, injected_images: dict[str, ImageValue] | None = None, persist_previews: bool = True) -> Execution:
+        injected_images = injected_images or {}
+        validation = self.validator.validate(workflow, set(injected_images))
         if not validation.valid:
             raise ValueError("; ".join(issue.message for issue in validation.issues))
         run_id = f"run_{uuid.uuid4().hex}"
         plan = build_execution_plan(workflow, self.validator.nodes)
-        execution = Execution(run_id=run_id, workflow=workflow, scope=ExecutionScope(run_id, self.feature_store, self.settings_snapshot()), plan=plan)
+        execution = Execution(run_id=run_id, workflow=workflow, scope=ExecutionScope(run_id, self.feature_store, self.settings_snapshot()), plan=plan, injected_images=injected_images, persist_previews=persist_previews)
         self.executions[execution.run_id] = execution
         asyncio.create_task(self._execute(execution, plan.order))
         return execution
@@ -156,6 +159,12 @@ class ExecutionEngine:
             return self.executions[run_id]
         except KeyError as exc:
             raise ValueError(f"Unknown run: {run_id}") from exc
+
+    def discard(self, run_id: str) -> None:
+        execution = self.get(run_id)
+        if execution.state not in {RunState.COMPLETED, RunState.ERROR, RunState.STOPPED, RunState.CANCELLED}:
+            raise ValueError("Cannot discard an active execution")
+        self.executions.pop(run_id, None)
 
     async def pause(self, run_id: str) -> None:
         execution = self.get(run_id)
@@ -246,6 +255,8 @@ class ExecutionEngine:
 
     async def _run_node(self, execution: Execution, node, inputs: dict[str, Any]):
         if node.type in {"image_source", "video_source"}:
+            if node.type == "image_source" and node.id in execution.injected_images:
+                return execution.injected_images[node.id]
             asset = self.assets.get(str(node.config["asset_id"]))
             if node.type == "video_source":
                 return VideoValue(asset=asset, frame_stride=int(node.config.get("frame_stride", 1)), warmup_frames=int(node.config.get("warmup_frames", 2)), benchmark_frames=int(node.config.get("benchmark_frames", 0)))
@@ -366,6 +377,8 @@ class ExecutionEngine:
                 return feature_value
             await self.publish(execution, {"type": "inference_result", "event": "inference_completed", "node_id": node.id, "model": config.model_dump(mode="json"), "result": result.model_dump(mode="json")})
             return ModelOutput(image=image, result=result, config=config)
+        if node.type.endswith("_preview") and not execution.persist_previews:
+            return {}
         if node.type == "video_preview":
             return await self._run_video(execution, node.id, inputs["result"])
         if node.type == "image_preview":

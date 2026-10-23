@@ -3,17 +3,65 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile
-    ports: ["8000:8000"]
+      args:
+        # Set to 0 for a small API/UI-only image. The Windows example enables
+        # the model runtimes so YOLO, DETR, SAM, OCR, and ONNX can execute.
+        INSTALL_RUNTIMES: "${VIS_INSTALL_RUNTIMES:-1}"
+    environment:
+      VIS_PROJECT_ROOT: /app
+      VIS_DATA_DIR: /data
+      VIS_CONFIG_DIR: /data/config
+      VIS_MODELS_FILE: /app/config/models.yaml
+      VIS_ENV_FILE: /data/config/providers.env
+      VIS_RECIPE_INPUT_ROOTS: /imports
+      VIS_AUTO_ANNOTATION_INPUT_ROOTS: /imports
+      VIS_AUTO_ANNOTATION_ROOT: /data/workspace/auto-annotation
+      VIS_AUTO_ANNOTATION_OUTPUT_ROOT: /exports
+      PUBLIC_HUB_CACHE: /data/workspace/public-hub
+      HF_HOME: /data/cache/huggingface
+      YOLO_CONFIG_DIR: /data/config/ultralytics
+      PYTHONUNBUFFERED: "1"
+    ports:
+      # Kept on loopback for API docs/debugging. Browser traffic normally goes
+      # through the frontend's same-origin nginx proxy.
+      - "127.0.0.1:${VIS_API_PORT:-8000}:8000"
     volumes:
-      - ./weights:/app/weights
-      - ./workflows:/app/workflows
-      - ./workspace:/app/workspace
+      - studio-data:/data
+      - type: bind
+        source: "${VIS_IMPORT_DIR:-./docker/imports}"
+        target: /imports
+        read_only: true
+      - type: bind
+        source: "${VIS_EXPORT_DIR:-./docker/exports}"
+        target: /exports
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3).read()"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
     restart: unless-stopped
+    stop_grace_period: 30s
 
   frontend:
     build:
       context: .
       dockerfile: frontend/Dockerfile
-    ports: ["${VIS_FRONTEND_PORT:-5174}:80"]
-    depends_on: [backend]
+      args:
+        VITE_API_URL: same-origin
+    ports:
+      - "${VIS_FRONTEND_PORT:-5174}:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1/"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
     restart: unless-stopped
+
+volumes:
+  # Docker Desktop stores this volume inside its Linux VM. It persists uploaded
+  # weights, workflows, downloaded resources, recipes, runs, and API-key config.
+  studio-data:
