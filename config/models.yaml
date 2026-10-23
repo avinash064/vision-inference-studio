@@ -27,6 +27,26 @@ families:
       v26:
         sizes: [n, s, m, l, x, custom]
 
+  yolo-seg:
+    display_name: YOLO Segmentation
+    adapter: yolo-seg
+    result_type: segmentation
+    # Ultralytics segmentation checkpoints, including custom *-seg.pt exports.
+    extensions: [.pt, .onnx, .engine]
+    versions:
+      v5:
+        sizes: [n, s, m, l, x, custom]
+      v8:
+        sizes: [n, s, m, l, x, custom]
+      v9:
+        sizes: [c, e, custom]
+      v11:
+        sizes: [n, s, m, l, x, custom]
+      v12:
+        sizes: [n, s, m, l, x, custom]
+      v26:
+        sizes: [n, s, m, l, x, custom]
+
   rtdetr:
     # Ultralytics RT-DETR-L / RT-DETR-X and compatible custom .pt checkpoints.
     display_name: RT-DETR

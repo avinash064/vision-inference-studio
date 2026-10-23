@@ -15,7 +15,8 @@ class WorkflowValidator:
     def __init__(self, nodes: NodeRegistry, models: ModelRegistry, weights: WeightStore, assets: AssetStore) -> None:
         self.nodes, self.models, self.weights, self.assets = nodes, models, weights, assets
 
-    def validate(self, workflow: Workflow) -> ValidationResult:
+    def validate(self, workflow: Workflow, injected_source_nodes: set[str] | None = None) -> ValidationResult:
+        injected_source_nodes = injected_source_nodes or set()
         issues: list[ValidationIssue] = []
         node_map = {}
         for node in workflow.nodes:
@@ -32,6 +33,8 @@ class WorkflowValidator:
                 continue
             for field in definition.config:
                 value = node.config.get(field.id, field.default)
+                if node.id in injected_source_nodes and node.type == "image_source" and field.id == "asset_id":
+                    continue
                 if node.type == "model" and field.id == "weight_id":
                     try:
                         if not self.models.get(str(node.config.get("family"))).requires_weights:
@@ -45,7 +48,8 @@ class WorkflowValidator:
                         issues.append(ValidationIssue(code="config_range", message=f"{field.label} must be at least {field.minimum}", node_id=node.id))
                     if field.maximum is not None and value > field.maximum:
                         issues.append(ValidationIssue(code="config_range", message=f"{field.label} must be at most {field.maximum}", node_id=node.id))
-            self._validate_special(node, issues)
+            if node.id not in injected_source_nodes:
+                self._validate_special(node, issues)
 
         incoming: dict[tuple[str, str], list] = {}
         for edge in workflow.edges:

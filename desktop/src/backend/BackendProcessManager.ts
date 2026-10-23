@@ -1,4 +1,4 @@
-import { spawn, type ChildProcessByStdio } from 'node:child_process'
+import { execFile, spawn, type ChildProcessByStdio } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
 import type { Readable } from 'node:stream'
@@ -14,7 +14,7 @@ export class BackendProcessManager {
   private state: BackendState = 'stopped'
   private lastError?: string
 
-  constructor(private readonly paths: AppPaths, private readonly token: string) {}
+  constructor(private readonly paths: AppPaths, private readonly token: string, private readonly shellToken: string) {}
 
   status() { return { state: this.state, port: this.port, pid: this.child?.pid, error: this.lastError } }
   getPort(): number | undefined { return this.port }
@@ -31,12 +31,17 @@ export class BackendProcessManager {
     const child = spawn(this.paths.runtimePython, ['-m', 'uvicorn', 'inference_studio.main:app', '--host', '127.0.0.1', '--port', String(this.port), '--no-access-log'], {
       cwd: this.paths.appRoot,
       detached: process.platform !== 'win32',
+      windowsHide: true,
       env: {
         ...process.env,
         PYTHONPATH: pythonPath,
+        PYTHONUTF8: '1',
+        VIS_RUNTIME_SOURCE: this.paths.runtime.source,
         VIS_DESKTOP_MODE: '1',
         VIS_PARENT_PID: String(process.pid),
         VIS_API_TOKEN: this.token,
+        // Held only by this main process (never sent to page content); authorizes native-dialog path approvals.
+        VIS_SHELL_TOKEN: this.shellToken,
         VIS_PROJECT_ROOT: this.paths.appRoot,
         VIS_DATA_DIR: this.paths.dataRoot,
         // Mutable settings belong to the user's config directory. The read-only model catalog
@@ -94,20 +99,39 @@ export class BackendProcessManager {
     const child = this.child
     if (!child || child.exitCode !== null) { this.state = 'stopped'; this.child = undefined; return }
     this.state = 'stopping'
-    const signal = (name: NodeJS.Signals) => {
-      try {
-        if (process.platform !== 'win32' && child.pid) process.kill(-child.pid, name)
-        else child.kill(name)
-      } catch { child.kill(name) }
+    const exited = new Promise<boolean>((resolve) => child.once('exit', () => resolve(true)))
+    const after = (ms: number) => new Promise<boolean>((resolve) => setTimeout(() => resolve(false), ms).unref())
+    if (process.platform === 'win32') {
+      // Windows has no POSIX signals (child.kill is TerminateProcess): ask uvicorn to exit through its normal
+      // shutdown path so models unload and GPU memory is released.
+      await this.requestShutdown()
+    } else this.signal(child, 'SIGTERM')
+    if (!(await Promise.race([exited, after(graceMs)])) && child.exitCode === null) {
+      if (process.platform === 'win32') await this.killTree(child.pid)
+      else this.signal(child, 'SIGKILL')
+      await Promise.race([exited, after(3_000)])
     }
-    signal('SIGTERM')
-    await new Promise<void>((resolve) => {
-      let settled = false
-      const finish = () => { if (!settled) { settled = true; resolve() } }
-      child.once('exit', finish)
-      setTimeout(() => { if (child.exitCode === null) signal('SIGKILL'); finish() }, graceMs).unref()
-    })
     this.child = undefined
     this.state = 'stopped'
+  }
+
+  private signal(child: ChildProcessByStdio<null, Readable, Readable>, name: NodeJS.Signals): void {
+    try {
+      if (child.pid) process.kill(-child.pid, name) // the backend's own process group (spawned detached)
+      else child.kill(name)
+    } catch { child.kill(name) }
+  }
+
+  private async requestShutdown(): Promise<void> {
+    if (!this.port) return
+    try {
+      await fetch(`http://127.0.0.1:${this.port}/api/v1/desktop/shutdown`, { method: 'POST', headers: { 'X-Vision-Session': this.token }, signal: AbortSignal.timeout(2_000) })
+    } catch { /* already exiting or unresponsive; the forced stop below handles it */ }
+  }
+
+  /** Force-stop only the process tree this shell started (by PID), never other Python processes. */
+  private killTree(pid: number | undefined): Promise<void> {
+    if (!pid) return Promise.resolve()
+    return new Promise((resolve) => execFile('taskkill', ['/PID', String(pid), '/T', '/F'], { windowsHide: true }, () => resolve()))
   }
 }

@@ -16,7 +16,7 @@ from inference_studio.adapters.vllm import VllmAdapter
 from inference_studio.adapters.grounding_dino import GroundingDinoAdapter
 from inference_studio.adapters.sam import SamAdapter, SamHandle
 from inference_studio.adapters.ultralytics_sam import Sam2Adapter, Sam3Adapter, to_segmentation
-from inference_studio.adapters.yolo import YoloAdapter
+from inference_studio.adapters.yolo import YoloAdapter, YoloSegAdapter
 from inference_studio.results import DetectionResult
 
 
@@ -47,6 +47,7 @@ def test_adapter_registry_resolves_model_specific_code_once():
     assert registry.get("rtdetr").name == "rtdetr"
     assert registry.get("rtdetrv2").name == "rtdetrv2"
     assert registry.get("yolo").name == "yolo"
+    assert registry.get("yolo-seg").name == "yolo-seg"
     assert registry.get("grounding-dino").name == "grounding-dino"
     assert registry.get("sam").name == "sam"
     assert registry.get("sam2").name == "sam2"
@@ -113,6 +114,20 @@ def test_yolo_normalizes_ultralytics_detection():
     result = adapter.postprocess(loaded("yolo"), InferenceRequest(), output)
     assert result.result_type == "detections"
     assert result.detections[0].model_dump() == {"bbox": [1.0, 2.0, 30.0, 40.0], "class_id": 2, "label": "skip_car", "confidence": .93}
+
+
+def test_yolo_seg_normalizes_ultralytics_instance_masks():
+    adapter = YoloSegAdapter()
+    output = SimpleNamespace(
+        names={2: "skip_car"},
+        boxes=SimpleNamespace(cls=FakeTensor([2]), conf=FakeTensor([.91])),
+        masks=SimpleNamespace(data=FakeTensor([[[0, 0, 0], [0, 1, 1], [0, 1, 1]]])),
+    )
+    result = adapter.postprocess(loaded("yolo"), InferenceRequest(), output)
+    assert result.result_type == "segmentation"
+    assert result.masks[0].label == "skip_car"
+    assert result.masks[0].bbox == [1.0, 1.0, 2.0, 2.0]
+    assert result.masks[0].area == 4
 
 
 def test_rtdetr_uses_ultralytics_runtime_and_detection_contract(monkeypatch):

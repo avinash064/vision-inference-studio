@@ -8,6 +8,10 @@ import tarfile
 import zipfile
 from pathlib import Path, PurePosixPath
 
+from inference_studio.portable_paths import is_absolute_any_platform, windows_unsafe_member
+
+IS_WINDOWS = os.name == "nt"
+
 
 class IntegrityError(ValueError):
     pass
@@ -37,8 +41,10 @@ def tree_identity(root: Path) -> tuple[str, int]:
 def _safe_name(name: str) -> Path:
     normalized = name.replace("\\", "/")
     value = PurePosixPath(normalized)
-    if value.is_absolute() or ".." in value.parts or not value.parts:
+    if value.is_absolute() or ".." in value.parts or not value.parts or is_absolute_any_platform(normalized):
         raise IntegrityError(f"Unsafe archive member: {name}")
+    if IS_WINDOWS and (bad := windows_unsafe_member(normalized)) is not None:
+        raise IntegrityError(f"Archive member cannot be created on Windows ({bad!r} is an invalid or reserved name): {name}")
     return Path(*value.parts)
 
 

@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 
 from inference_studio.config import Settings
 from inference_studio.main import create_app
-from inference_studio.runtime_check import REQUIRED_IMPORTS
+from inference_studio.runtime_check import OPTIONAL_IMPORTS, REQUIRED_IMPORTS
 
 
 def test_desktop_paths_use_xdg_data(monkeypatch, tmp_path: Path):
@@ -42,4 +42,7 @@ def test_desktop_http_requires_session_token(monkeypatch, tmp_path: Path):
 
 
 def test_runtime_check_covers_all_required_engines():
-    assert {"fastapi", "uvicorn", "pydantic", "cv2", "numpy", "torch", "torchvision", "ultralytics", "rfdetr", "onnxruntime", "transformers", "safetensors", "groundingdino", "clip", "chainner_ext", "paddleocr", "paddle", "pytesseract", "faster_coco_eval"} == set(REQUIRED_IMPORTS)
+    assert {"fastapi", "uvicorn", "pydantic", "cv2", "numpy", "torch", "torchvision", "ultralytics", "rfdetr", "onnxruntime", "transformers", "safetensors", "groundingdino", "clip", "chainner_ext", "paddleocr", "paddle", "pytesseract", "faster_coco_eval"} == set(REQUIRED_IMPORTS) | set(OPTIONAL_IMPORTS)
+    # One unavailable optional engine (e.g. a Windows native extension) must not fail the whole runtime.
+    assert {"torch", "ultralytics", "rfdetr", "onnxruntime"} <= set(REQUIRED_IMPORTS)
+    assert {"paddleocr", "paddle", "pytesseract", "groundingdino"} <= set(OPTIONAL_IMPORTS) and not set(REQUIRED_IMPORTS) & set(OPTIONAL_IMPORTS)

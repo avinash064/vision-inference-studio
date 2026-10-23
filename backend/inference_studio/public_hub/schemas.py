@@ -290,6 +290,14 @@ class PromoteRequest(BaseModel):
     recipe_id: str | None = Field(default=None, pattern=r"^rcp_[A-Za-z0-9_-]+$")
 
 
+class CanvasRecipePromoteRequest(BaseModel):
+    """An explicit user request to freeze the current Canvas graph for AA."""
+
+    workflow: dict[str, Any]
+    name: str = Field(default="Canvas recipe", min_length=1, max_length=120)
+    recipe_id: str | None = Field(default=None, pattern=r"^rcp_[A-Za-z0-9_-]+$")
+
+
 class InferenceRecipe(BaseModel):
     recipe_id: str
     recipe_version: int
@@ -309,9 +317,10 @@ class InferenceRecipe(BaseModel):
     workflow_id: str
     workflow_version: str
     workflow_hash: str
-    benchmark_id: str
-    benchmark_hash: str
-    source_experiment_id: str
+    benchmark_id: str | None = None
+    benchmark_hash: str | None = None
+    source_experiment_id: str | None = None
+    promotion_source: Literal["EXPERIMENT", "CANVAS"] = "EXPERIMENT"
     runtime_capabilities: list[str]
     created_at: str = Field(default_factory=utc_now)
     promoted_at: str = Field(default_factory=utc_now)

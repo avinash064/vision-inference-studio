@@ -16,11 +16,15 @@ class TesseractAdapter(ModelAdapter):
     def load(self, key: ModelKey, weight_path: Path) -> LoadedModel:
         try:
             import pytesseract
+            from inference_studio.binaries import resolve_binary
+            command = resolve_binary("tesseract")  # Windows installs are usually not on PATH
+            if command:
+                pytesseract.pytesseract.tesseract_cmd = command
             pytesseract.get_tesseract_version()
         except ImportError as exc:
             raise RuntimeError("pytesseract is not installed; install requirements-runtimes.txt") from exc
         except Exception as exc:
-            raise RuntimeError("Tesseract OCR executable is not installed or is not on PATH") from exc
+            raise RuntimeError("Tesseract OCR executable not found; install it or set VIS_TESSERACT_CMD") from exc
         return LoadedModel(handle=pytesseract, key=key, weight_path=weight_path)
 
     def preprocess(self, model: LoadedModel, request: InferenceRequest, input_data: np.ndarray) -> np.ndarray:

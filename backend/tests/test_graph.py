@@ -84,6 +84,25 @@ def test_sam_output_connects_only_to_segmentation_preview(model_registry, stores
     assert result.valid, result.issues
 
 
+def test_yolo_seg_output_connects_to_segmentation_preview(model_registry, stores, registered_files):
+    weights, assets = stores
+    _, asset = registered_files
+    weight = weights.save(__import__("io").BytesIO(b"yolo segmentation"), "yolo11n-seg.pt", "yolo-seg")
+    workflow = Workflow(
+        nodes=[
+            NodeInstance(id="source", type="image_source", config={"asset_id": asset.asset_id}),
+            NodeInstance(id="model", type="model", config={"family": "yolo-seg", "version": "v11", "size": "n", "weight_id": weight.weight_id, "device": "cpu", "precision": "fp32"}),
+            NodeInstance(id="preview", type="segmentation_preview"),
+        ],
+        edges=[
+            Edge(id="one", source="source", source_handle="image", target="model", target_handle="input"),
+            Edge(id="two", source="model", source_handle="output", target="preview", target_handle="result"),
+        ],
+    )
+    result = WorkflowValidator(NodeRegistry(), model_registry, weights, assets).validate(workflow)
+    assert result.valid, result.issues
+
+
 def test_weightless_ocr_model_validates_and_connects_to_ocr_preview(model_registry, stores, registered_files):
     weights, assets = stores
     _, asset = registered_files

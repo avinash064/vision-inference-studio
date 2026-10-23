@@ -16,6 +16,8 @@ from inference_studio.assets import AssetStore
 from inference_studio.durable import JsonDocumentStore
 from inference_studio.graph import Workflow
 from inference_studio.graph.executor import ExecutionEngine
+from inference_studio.nodes.runtime import ImageValue
+from inference_studio.assets.store import AssetRecord
 
 from .assets import ImportedAssetRegistry
 from .benchmarks import BenchmarkRegistry, stable_hash
@@ -184,7 +186,7 @@ class ExperimentRegistry:
         terminal = next((event for event in reversed(events) if event.get("type") == "run_state"), {})
         if terminal.get("state") != "COMPLETED":
             raise RuntimeError(terminal.get("error", f"Vision runtime ended in {terminal.get('state', 'unknown')}"))
-        inference = next((event for event in reversed(events) if event.get("type") == "inference_result"), {})
+        inference = next((event for event in reversed(events) if event.get("type") == "inference_result" and event.get("event") == "inference_completed"), {})
         preview = next((event for event in reversed(events) if event.get("type") == "preview"), {})
         node_times = [event for event in events if event.get("type") == "node_state" and event.get("event") == "node_completed"]
         result = inference.get("result", preview.get("result", {})) or {}
@@ -342,3 +344,30 @@ class ExperimentRegistry:
             raise RuntimeError(terminal.get("error", "Recipe execution failed"))
         event = next((event for event in reversed(events) if event.get("type") in {"preview", "inference_result"}), {})
         return {"run_id": execution.run_id, "result": event.get("result", {}), "preview_url": event.get("prediction_url", event.get("url"))}
+
+    async def execute_workflow_for_image(self, workflow: dict[str, Any], image: np.ndarray, source_name: str, source_id: str, persist_preview: bool = True) -> dict:
+        """Execute a promoted workflow with an in-memory image source.
+
+        Auto Annotation uses this path for streamed video frames so sampled but
+        discarded frames never become permanent AssetStore entries.
+        """
+        raw = copy.deepcopy(workflow)
+        image_nodes = [node for node in raw.get("nodes", []) if node.get("type") == "image_source"]
+        if not image_nodes:
+            raise ValueError("Promoted recipe must contain an image_source node")
+        height, width = image.shape[:2]
+        record = AssetRecord(asset_id=f"ast_{source_id[:32].ljust(32, '0')}", kind="image", filename=Path(source_name).name or "frame.jpg", content_type="image/jpeg", size_bytes=int(image.nbytes), sha256=source_id, width=width, height=height, path="")
+        injected = {node["id"]: ImageValue(image=image, asset=record) for node in image_nodes}
+        execution = self.engine.start(Workflow.model_validate(raw), injected_images=injected, persist_previews=persist_preview)
+        events = []
+        async for event in self.engine.subscribe(execution.run_id):
+            events.append(event)
+        self.engine.discard(execution.run_id)
+        terminal = next((event for event in reversed(events) if event.get("type") == "run_state"), {})
+        if terminal.get("state") != "COMPLETED":
+            raise RuntimeError(terminal.get("error", "Recipe execution failed"))
+        inference = next((event for event in reversed(events) if event.get("type") == "inference_result" and event.get("event") == "inference_completed"), {})
+        preview = next((event for event in reversed(events) if event.get("type") == "preview"), {})
+        result = inference.get("result", preview.get("result", {})) or {}
+        metrics = result.get("metrics", {}) or {}
+        return {"run_id": execution.run_id, "result": result, "preview_url": preview.get("prediction_url", preview.get("url")), "metrics": metrics}

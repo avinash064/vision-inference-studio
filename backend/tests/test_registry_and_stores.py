@@ -14,9 +14,10 @@ from inference_studio.nodes import NodeRegistry
 
 
 def test_model_registry_contains_declared_families(model_registry):
-    assert set(model_registry.manifest.families) == {"yolo", "rtdetr", "rtdetrv2", "rfdetr", "dinov3", "grounding-dino", "sam", "sam2", "sam3", "paddleocr", "tesseract", "vllm", "onnx"}
+    assert set(model_registry.manifest.families) == {"yolo", "yolo-seg", "rtdetr", "rtdetrv2", "rfdetr", "dinov3", "grounding-dino", "sam", "sam2", "sam3", "paddleocr", "tesseract", "vllm", "onnx"}
     assert set(model_registry.get("yolo").versions) == {"v3", "v5", "v6", "v7-export", "v8", "v9", "v10", "v11", "v12", "v26"}
     assert model_registry.validate_selection("yolo", "v11", "n").adapter == "yolo"
+    assert model_registry.validate_selection("yolo-seg", "v11", "n").result_type == "segmentation"
     assert model_registry.validate_selection("rtdetr", "ultralytics", "custom").adapter == "rtdetr"
     assert model_registry.validate_selection("rtdetrv2", "bmd-45", "r101-x").adapter == "rtdetrv2"
     assert model_registry.validate_selection("rfdetr", "v1", "large").patch_sizes["large"] == [14, 16]

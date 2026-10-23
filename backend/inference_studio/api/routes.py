@@ -18,7 +18,7 @@ import cv2
 from inference_studio.adapters import ModelConfig
 from inference_studio.graph import Workflow
 from inference_studio.public_hub.schemas import (
-    BenchmarkCreate, ExperimentCreate, ExternalResourceRef, ModelArtifactWeightRequest, PromoteRequest, RegisteredWeight,
+    BenchmarkCreate, CanvasRecipePromoteRequest, ExperimentCreate, ExternalResourceRef, ModelArtifactWeightRequest, PromoteRequest, RegisteredWeight,
     ProviderCredentialUpdate, ResourceDownloadRequest, ResourceKind,
 )
 from inference_studio.models.registry import ModelRegistryError
@@ -140,6 +140,44 @@ def update_chainner_settings(values: dict, request: Request):
         return services(request).chainner_settings.update(values)
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
+
+
+@router.get("/runtime/diagnostics")
+async def runtime_diagnostics_route(request: Request):
+    """Platform, Python, PyTorch/CUDA and per-family dependency status; no secrets or environment values."""
+    from inference_studio.runtime_diagnostics import runtime_diagnostics
+    return await asyncio.to_thread(runtime_diagnostics, services(request).models.manifest.families)
+
+
+@router.post("/desktop/shutdown", status_code=202)
+async def desktop_shutdown():
+    """Graceful exit requested by the desktop shell that owns this backend (session token required)."""
+    from inference_studio.desktop_lifecycle import request_graceful_shutdown
+    from inference_studio.security import desktop_token
+    if desktop_token() is None:
+        raise HTTPException(404, "Not available outside desktop mode")
+    asyncio.get_running_loop().call_later(0.2, request_graceful_shutdown)  # let this response flush first
+    return {"state": "shutting_down"}
+
+
+@router.post("/desktop/approve-path")
+async def desktop_approve_path(request: Request):
+    """Approve a source the user picked in the native OS dialog. Requires the shell-only secret, which the
+    desktop main process holds and never gives to page content, so the renderer cannot approve paths itself."""
+    import hmac
+    expected = os.getenv("VIS_SHELL_TOKEN", "")
+    supplied = request.headers.get("X-Vision-Shell", "")
+    if os.getenv("VIS_DESKTOP_MODE") != "1" or not expected or not hmac.compare_digest(supplied, expected):
+        raise HTTPException(403, "Only the desktop shell may approve source paths")
+    payload = await request.json()
+    manager = services(request).auto_annotation
+    if manager is None:
+        raise HTTPException(404, "Auto Annotation is unavailable")
+    try:
+        path = await asyncio.to_thread(manager.sources.approve, str(payload.get("path", "")))
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    return {"approved": str(path)}
 
 
 @router.get("/models")
@@ -488,6 +526,11 @@ def _model_root(request: Request, model_artifact_id: str):
 def _suggest_family(relative_path: str, families: list[str]) -> str | None:
     """Best family whose normalized name appears in the file's path (e.g. weights/YOLOv12-S/best.pt -> yolo)."""
     text = "".join(ch for ch in relative_path.lower() if ch.isalnum())
+    # Ultralytics names segmentation checkpoints with a ``-seg`` suffix.  The
+    # generic YOLO token is otherwise an equally valid but incorrectly typed
+    # match, so prefer the segmentation adapter when it is available.
+    if "yolo" in text and "seg" in text and "yolo-seg" in families:
+        return "yolo-seg"
     matches = [family for family in families if "".join(ch for ch in family.lower() if ch.isalnum()) in text]
     return max(matches, key=len) if matches else None
 
@@ -616,6 +659,25 @@ def promote_experiment(experiment_id: str, payload: PromoteRequest, request: Req
 @router.get("/recipes")
 def list_recipes(request: Request, include_non_promoted: bool = False):
     return services(request).recipes.list(promoted_only=not include_non_promoted)
+
+
+@router.post("/recipes/from-canvas", status_code=201)
+def promote_canvas_recipe(payload: CanvasRecipePromoteRequest, request: Request):
+    """Validate and freeze the current Canvas snapshot as an immutable AA recipe."""
+    try:
+        workflow = Workflow.model_validate(payload.workflow)
+        image_sources = {node.id for node in workflow.nodes if node.type == "image_source"}
+        if not image_sources:
+            raise ValueError("The Canvas must contain an Image source node")
+        validation = services(request).validator.validate(workflow, image_sources)
+        if not validation.valid:
+            details = "; ".join(f"{issue.code}: {issue.message}" for issue in validation.issues)
+            raise ValueError(details)
+        normalized = payload.model_copy(update={"workflow": workflow.model_dump(mode="json")})
+        recipe = services(request).recipes.promote_canvas(normalized)
+        return services(request).recipes.public(recipe, include_workflow=True)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
 
 
 @router.get("/recipes/{recipe_id}")

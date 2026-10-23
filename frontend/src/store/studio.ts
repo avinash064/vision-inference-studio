@@ -9,6 +9,7 @@ interface StudioState {
   initialize: (data: { definitions: NodeDefinition[]; models: ModelCatalog; devices: Device[]; weights: Weight[]; benchmarks?: Record<string, BenchmarkReport> }) => void
   addNode: (type: string, position: XYPosition) => void; select: (id?: string) => void; updateConfig: (id: string, key: string, value: unknown) => void
   createExample: () => void
+  createModelPipeline: (family: string) => void
   loadWorkflow: (workflow: Record<string, unknown>) => void; setNodeState: (id: string, state: string) => void
   onNodesChange: (changes: NodeChange<StudioNode>[]) => void; onEdgesChange: (changes: EdgeChange<StudioEdge>[]) => void; connect: (connection: Connection) => void
   setIssues: (issues: ValidationIssue[]) => void; startRun: (id: string) => void; addEvent: (event: ExecutionEvent) => void; addWeight: (weight: Weight) => void
@@ -36,9 +37,26 @@ export const useStudio = create<StudioState>((set, get) => ({
     const config = Object.fromEntries(definition.config.filter((field) => field.default !== null && field.default !== undefined).map((field) => [field.id, field.default]))
     set((state) => ({ nodes: [...state.nodes, { id: `node_${sequence++}`, type: 'studio', position, data: { nodeType: type, label: definition.label, config } }] }))
   },
-  createExample: () => { const suffix = sequence++; const imageId = `image_${suffix}`, modelId = `model_${suffix}`, previewId = `preview_${suffix}`; const device = get().devices.find((item) => item.kind === 'cuda')?.id || 'cpu'; set({ nodes: [{ id: imageId, type: 'studio', position: { x: 80, y: 160 }, data: { nodeType: 'image_source', label: 'Image', config: {} } }, { id: modelId, type: 'studio', position: { x: 390, y: 160 }, data: { nodeType: 'model', label: 'Model', config: { family: 'rfdetr', version: 'v1', size: 'large', device, precision: device.startsWith('cuda') ? 'fp16' : 'fp32', confidence: .3 } } }, { id: previewId, type: 'studio', position: { x: 720, y: 160 }, data: { nodeType: 'detection_preview', label: 'Detection Preview', config: {} } }], edges: [{ id: `edge_image_${suffix}`, source: imageId, sourceHandle: 'image', target: modelId, targetHandle: 'input', className: 'execution-edge' }, { id: `edge_preview_${suffix}`, source: modelId, sourceHandle: 'output', target: previewId, targetHandle: 'result', className: 'execution-edge' }], selectedId: imageId, issues: [], events: [], runState: 'IDLE' }) },
+  createExample: () => get().createModelPipeline('rfdetr'),
+  createModelPipeline: (family) => {
+    const weight = [...get().weights].reverse().find((item) => item.family === family)
+    get().openInCanvas({ model: { family, ...(weight ? { weightId: weight.weight_id, hint: weight.filename } : {}) } })
+  },
   select: (selectedId) => set({ selectedId }),
-  updateConfig: (id, key, value) => set((state) => ({ nodes: state.nodes.map((node) => node.id === id ? { ...node, data: { ...node.data, config: { ...node.data.config, [key]: value } } } : node) })),
+  updateConfig: (id, key, value) => set((state) => {
+    let nodes = state.nodes.map((node) => node.id === id ? { ...node, data: { ...node.data, config: { ...node.data.config, [key]: value } } } : node)
+    if (key === 'family') {
+      const resultType = state.models?.families[String(value)]?.result_type
+      const preview = resultType ? PREVIEW_FOR_RESULT[resultType] : undefined
+      if (preview) {
+        const directTargets = new Set(state.edges.filter((edge) => edge.source === id).map((edge) => edge.target))
+        nodes = nodes.map((node) => directTargets.has(node.id) && node.data.nodeType.endsWith('_preview')
+          ? { ...node, data: { ...node.data, nodeType: preview[0], label: preview[1], config: {} } }
+          : node)
+      }
+    }
+    return { nodes }
+  }),
   loadWorkflow: (workflow) => { const state = get(); const rawNodes = (workflow.nodes || []) as Array<{ id: string; type: string; position: XYPosition; config: Record<string, unknown> }>; const rawEdges = (workflow.edges || []) as Array<{ id: string; source: string; source_handle: string; target: string; target_handle: string }>; set({ nodes: rawNodes.map((node) => ({ id: node.id, type: 'studio', position: node.position, data: { nodeType: node.type, label: state.definitions.find((item) => item.type === node.type)?.label || node.type, config: node.config } })), edges: rawEdges.map((edge) => ({ id: edge.id, source: edge.source, sourceHandle: edge.source_handle, target: edge.target, targetHandle: edge.target_handle, className: 'execution-edge' })), selectedId: undefined, issues: [], events: [], runId: undefined, previewUrl: undefined, originalUrl: undefined, runState: 'IDLE' }) },
   setNodeState: (id, value) => set((state) => ({ nodes: state.nodes.map((node) => node.id === id ? { ...node, data: { ...node.data, state: value } } : node) })),
   onNodesChange: (changes) => set((state) => ({ nodes: applyNodeChanges(changes, state.nodes) })),

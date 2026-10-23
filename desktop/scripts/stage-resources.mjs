@@ -8,13 +8,21 @@ const desktopRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '
 const projectRoot = path.resolve(desktopRoot, '..')
 const target = path.join(desktopRoot, 'resources')
 
-// Relocatable CPython shipped with the app so the runtime never depends on the host's Python.
-const BUNDLED_PYTHON = {
-  version: '3.12.15',
-  file: 'cpython-3.12.15+20261003-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz',
-  url: 'https://releases.astral.sh/github/python-build-standalone/releases/download/20261003/cpython-3.12.15%2B20261003-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz',
-  sha256: '731af898886c5f821890dc901eca3c651cca8e51fa7308c159d12a1194aeac91',
+// Relocatable CPython shipped with the app so the runtime never depends on the host's Python. One pinned
+// interpreter version for every platform (python-build-standalone release 20261003, checksums from its SHA256SUMS).
+const targetPlatform = process.env.VIS_TARGET_PLATFORM || process.platform
+const PYTHON_VERSION = '3.12.15'
+const PYTHON_BUILDS = {
+  linux: { triple: 'x86_64-unknown-linux-gnu', sha256: '731af898886c5f821890dc901eca3c651cca8e51fa7308c159d12a1194aeac91' },
+  win32: { triple: 'x86_64-pc-windows-msvc', sha256: '6fba7f2ae506facf41d457ea8293c7497910a675c69a4e954875169410a50402' },
 }
+if (!PYTHON_BUILDS[targetPlatform]) throw new Error(`Unsupported desktop target platform: ${targetPlatform} (x64 Linux and Windows only)`)
+const BUNDLED_PYTHON = {
+  version: PYTHON_VERSION,
+  file: `cpython-${PYTHON_VERSION}+20261003-${PYTHON_BUILDS[targetPlatform].triple}-install_only_stripped.tar.gz`,
+  sha256: PYTHON_BUILDS[targetPlatform].sha256,
+}
+BUNDLED_PYTHON.url = `https://releases.astral.sh/github/python-build-standalone/releases/download/20261003/${encodeURIComponent(BUNDLED_PYTHON.file)}`
 
 fs.rmSync(target, { recursive: true, force: true })
 fs.mkdirSync(path.join(target, 'backend'), { recursive: true })
@@ -36,6 +44,8 @@ if (!fs.existsSync(chainnerSrc)) throw new Error(`chaiNNer source not found at $
 fs.cpSync(chainnerSrc, path.join(target, 'chainner', 'src'), { recursive: true, filter: ignoreGenerated })
 fs.mkdirSync(path.join(target, 'packaging'), { recursive: true })
 fs.cpSync(path.join(projectRoot, 'packaging', 'linux'), path.join(target, 'packaging', 'linux'), { recursive: true })
+// Cross-platform runtime installer (used by the Windows shell; Linux uses packaging/linux/setup-runtime.sh).
+fs.cpSync(path.join(projectRoot, 'packaging', 'runtime'), path.join(target, 'packaging', 'runtime'), { recursive: true, filter: ignoreGenerated })
 fs.cpSync(path.join(desktopRoot, 'assets'), path.join(target, 'assets'), { recursive: true })
 for (const name of ['pyproject.toml', 'requirements.txt', 'requirements-runtimes.txt', 'requirements-chainner-standard.txt', 'requirements-desktop.txt', 'requirements-lock.txt', 'requirements-public-hub.txt']) {
   fs.copyFileSync(path.join(projectRoot, name), path.join(target, name))
@@ -44,28 +54,34 @@ for (const name of ['pyproject.toml', 'requirements.txt', 'requirements-runtimes
 const archive = path.join(desktopRoot, 'vendor', BUNDLED_PYTHON.file)
 if (!fs.existsSync(archive)) {
   fs.mkdirSync(path.dirname(archive), { recursive: true })
-  console.log(`Downloading Python ${BUNDLED_PYTHON.version}`)
-  execFileSync('curl', ['-fsSL', '-o', archive, BUNDLED_PYTHON.url], { stdio: 'inherit' })
+  console.log(`Downloading Python ${BUNDLED_PYTHON.version} for ${targetPlatform}`)
+  const response = await fetch(BUNDLED_PYTHON.url)
+  if (!response.ok) throw new Error(`Download failed (${response.status}): ${BUNDLED_PYTHON.url}`)
+  fs.writeFileSync(archive, Buffer.from(await response.arrayBuffer()))
 }
 const digest = crypto.createHash('sha256').update(fs.readFileSync(archive)).digest('hex')
 if (digest !== BUNDLED_PYTHON.sha256) {
   fs.rmSync(archive, { force: true })
   throw new Error(`Checksum mismatch for ${BUNDLED_PYTHON.file}: ${digest}`)
 }
-execFileSync('tar', ['-xzf', archive, '-C', target])
-for (const unused of ['share', path.join('lib', 'pkgconfig')]) {
-  fs.rmSync(path.join(target, 'python', unused), { recursive: true, force: true })
-}
-// electron-packager rewrites relative symlinks as absolute paths into this build tree, which would be
-// dangling on any other machine. None are needed at runtime (setup-runtime.sh runs bin/python3.X directly).
-for (const entry of fs.readdirSync(path.join(target, 'python'), { recursive: true })) {
-  const file = path.join(target, 'python', entry)
-  if (fs.lstatSync(file).isSymbolicLink()) fs.rmSync(file)
+// Relative archive path from inside the target: GNU tar (Git for Windows) misreads "C:\..." as a remote host.
+execFileSync('tar', ['-xzf', path.relative(target, archive)], { cwd: target })
+const pythonRoot = path.join(target, 'python')
+if (targetPlatform === 'win32') {
+  if (!fs.existsSync(path.join(pythonRoot, 'python.exe'))) throw new Error('Bundled Windows Python (python.exe) missing after staging')
+} else {
+  for (const unused of ['share', path.join('lib', 'pkgconfig')]) fs.rmSync(path.join(pythonRoot, unused), { recursive: true, force: true })
+  // electron-packager rewrites relative symlinks as absolute paths into this build tree, which would be
+  // dangling on any other machine. None are needed at runtime (setup-runtime.sh runs bin/python3.X directly).
+  for (const entry of fs.readdirSync(pythonRoot, { recursive: true })) {
+    const file = path.join(pythonRoot, entry)
+    if (fs.lstatSync(file).isSymbolicLink()) fs.rmSync(file)
+  }
+  if (!fs.existsSync(path.join(pythonRoot, 'bin', `python${BUNDLED_PYTHON.version.split('.').slice(0, 2).join('.')}`))) {
+    throw new Error('Bundled Python interpreter missing after staging')
+  }
 }
 const leftover = fs.readdirSync(target, { recursive: true }).filter((entry) => fs.lstatSync(path.join(target, entry)).isSymbolicLink())
 if (leftover.length) throw new Error(`Symlinks would be packaged with absolute targets: ${leftover.join(', ')}`)
-if (!fs.existsSync(path.join(target, 'python', 'bin', `python${BUNDLED_PYTHON.version.split('.').slice(0, 2).join('.')}`))) {
-  throw new Error('Bundled Python interpreter missing after staging')
-}
 
-console.log(`Staged production resources and Python ${BUNDLED_PYTHON.version} in ${target}`)
+console.log(`Staged production resources and Python ${BUNDLED_PYTHON.version} (${targetPlatform}) in ${target}`)

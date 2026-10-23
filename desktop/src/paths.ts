@@ -2,15 +2,18 @@ import { app } from 'electron'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { resolvePlatformPaths, type Platform, type PythonRuntime } from './platformPaths'
 
 export interface AppPaths {
   appRoot: string
   frontendDist: string
-  setupScript: string
+  setupCommand: (mode: string) => { command: string; args: string[] }
   dataRoot: string
   configRoot: string
   runtimeRoot: string
+  runtime: PythonRuntime
   runtimePython: string
+  bundledPython: string
   managedRuntime: boolean
   runtimeMetadata: string
   weights: string
@@ -22,29 +25,30 @@ export interface AppPaths {
   windowState: string
 }
 
+/** Configuration directory, needed before app paths are resolved (single-instance lock, userData). */
+export function configDirectory(): string {
+  return resolvePlatformPaths({ platform: process.platform as Platform, env: process.env, homedir: os.homedir(), isPackaged: app.isPackaged, resourcesPath: process.resourcesPath, sourceDir: __dirname }).configRoot
+}
+
 export function resolveAppPaths(): AppPaths {
-  const home = os.homedir()
-  const dataHome = process.env.XDG_DATA_HOME || path.join(home, '.local', 'share')
-  const configHome = process.env.XDG_CONFIG_HOME || path.join(home, '.config')
-  const dataRoot = path.join(dataHome, 'vision-inference-studio')
-  const configRoot = path.join(configHome, 'vision-inference-studio')
-  const appRoot = app.isPackaged ? process.resourcesPath : path.resolve(__dirname, '..', '..')
-  const runtimeRoot = path.join(dataRoot, 'runtime')
-  const runtimeConfig = path.join(configRoot, 'python-runtime')
-  let configuredPython = process.env.VIS_PYTHON?.trim()
-  if (!configuredPython) {
-    try { configuredPython = fs.readFileSync(runtimeConfig, 'utf8').trim() } catch { /* use the managed runtime */ }
-  }
-  const runtimePython = configuredPython ? path.resolve(configuredPython) : path.join(runtimeRoot, 'venv', 'bin', 'python')
+  const base = { platform: process.platform as Platform, env: process.env, homedir: os.homedir(), isPackaged: app.isPackaged, resourcesPath: process.resourcesPath, sourceDir: __dirname }
+  let configuredPython: string | undefined
+  try {
+    configuredPython = fs.readFileSync(path.join(resolvePlatformPaths(base).configRoot, 'python-runtime'), 'utf8')
+  } catch { /* use the managed runtime */ }
+  const resolved = resolvePlatformPaths({ ...base, configuredPython })
+  const { appRoot, dataRoot, configRoot, runtimeRoot, runtime } = resolved
   return {
     appRoot,
     frontendDist: app.isPackaged ? path.join(appRoot, 'dist') : path.join(appRoot, 'frontend', 'dist'),
-    setupScript: path.join(appRoot, 'packaging', 'linux', 'setup-runtime.sh'),
+    setupCommand: resolved.setupCommand,
     dataRoot,
     configRoot,
     runtimeRoot,
-    runtimePython,
-    managedRuntime: !configuredPython,
+    runtime,
+    runtimePython: runtime.executable,
+    bundledPython: resolved.bundledPython,
+    managedRuntime: runtime.managed,
     runtimeMetadata: path.join(runtimeRoot, 'runtime-version.json'),
     weights: path.join(dataRoot, 'weights'),
     workflows: path.join(dataRoot, 'workflows'),
