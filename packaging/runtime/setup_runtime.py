@@ -82,7 +82,7 @@ class Setup:
     def run(self, command: list[str]) -> None:
         """Run a child process with an argument list (no shell), streaming its output to the log."""
         self.log("$ " + " ".join(command))
-        env = {**os.environ, "PIP_DISABLE_PIP_VERSION_CHECK": "1", "PYTHONNOUSERSITE": "1", "PYTHONUTF8": "1"}
+        env = {**os.environ, "PIP_DISABLE_PIP_VERSION_CHECK": "1", "PYTHONNOUSERSITE": "1", "PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8"}
         env.pop("PYTHONPATH", None)
         flags = subprocess.CREATE_NO_WINDOW if IS_WINDOWS else 0
         with subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env, text=True, encoding="utf-8", errors="replace", creationflags=flags) as child:
@@ -158,7 +158,8 @@ class Setup:
             python = runtime_python(self.runtime_root)
 
         self.progress(4, "Updating Python packaging tools")
-        pip = [str(python), "-I", "-m", "pip", "install", "--no-input"]
+        # -X utf8 survives -I (which drops PYTHONUTF8): child output is UTF-8 even for non-ASCII user folders.
+        pip = [str(python), "-X", "utf8", "-I", "-m", "pip", "install", "--no-input"]
         self.run([*pip, "--upgrade", "pip", "setuptools", "wheel"])
 
         self.progress(5, "Installing backend dependencies")
@@ -201,7 +202,7 @@ class Setup:
         self.log(f"RUNTIME READY ({int(time.monotonic() - started)} seconds)")
 
     def _runtime_check(self, python: Path) -> dict:
-        command = [str(python), "-I", "-m", "inference_studio.runtime_check", "--json", "--profile", self.profile]
+        command = [str(python), "-X", "utf8", "-I", "-m", "inference_studio.runtime_check", "--json", "--profile", self.profile]
         self.log("$ " + " ".join(command))
         result = subprocess.run(command, capture_output=True, text=True, encoding="utf-8", errors="replace", creationflags=subprocess.CREATE_NO_WINDOW if IS_WINDOWS else 0)
         self.log(result.stderr.strip()[-4000:])
@@ -211,7 +212,7 @@ class Setup:
             raise SystemExit(f"Runtime check produced no result (exit {result.returncode})")
 
     def _write_metadata(self, python: Path, check: dict, bundled_version: str, seconds: int) -> None:
-        frozen = subprocess.run([str(python), "-I", "-m", "pip", "list", "--format=json"], capture_output=True, text=True, encoding="utf-8", creationflags=subprocess.CREATE_NO_WINDOW if IS_WINDOWS else 0)
+        frozen = subprocess.run([str(python), "-X", "utf8", "-I", "-m", "pip", "list", "--format=json"], capture_output=True, text=True, encoding="utf-8", creationflags=subprocess.CREATE_NO_WINDOW if IS_WINDOWS else 0)
         packages = {row["name"].lower(): row["version"] for row in json.loads(frozen.stdout or "[]")}
         now = datetime.now(timezone.utc).isoformat()
         # Read by the desktop shell (RuntimeManager) to decide whether the runtime matches this app build.
@@ -249,7 +250,7 @@ class Setup:
         for directory in (self.runtime_root, self.log_file.parent, self.data_root / "weights", self.data_root / "workflows", self.data_root / "workspace", self.data_root / "benchmarks"):
             directory.mkdir(parents=True, exist_ok=True)
         if self.mode == "check":
-            return subprocess.call([str(runtime_python(self.runtime_root)), "-I", "-m", "inference_studio.runtime_check", "--json"])
+            return subprocess.call([str(runtime_python(self.runtime_root)), "-X", "utf8", "-I", "-m", "inference_studio.runtime_check", "--json"])
         self.acquire_lock()
         try:
             self.install()
@@ -272,4 +273,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 if __name__ == "__main__":
+    # Run with -I (environment ignored, so PYTHONUTF8 has no effect): force UTF-8 output so user names and
+    # folders outside the Windows code page (e.g. CJK) cannot crash progress logging.
+    for stream in (sys.stdout, sys.stderr):
+        stream.reconfigure(encoding="utf-8", errors="replace")
     raise SystemExit(Setup(parse_args()).main())

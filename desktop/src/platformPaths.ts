@@ -73,7 +73,7 @@ export function resolvePlatformPaths(input: PlatformInput): PlatformPaths {
       : { executable: managedPython, source: 'managed', platform, managed: true }
 
   const setupCommand = (mode: string) => platform === 'win32'
-    ? { command: bundledPython, args: ['-I', p.join(appRoot, 'packaging', 'runtime', 'setup_runtime.py'), '--mode', mode, '--app-root', appRoot, '--data-root', dataRoot] }
+    ? { command: bundledPython, args: ['-X', 'utf8', '-I', p.join(appRoot, 'packaging', 'runtime', 'setup_runtime.py'), '--mode', mode, '--app-root', appRoot, '--data-root', dataRoot] }
     : { command: 'bash', args: [p.join(appRoot, 'packaging', 'linux', 'setup-runtime.sh'), '--mode', mode] }
 
   return { appRoot, dataRoot, configRoot, runtimeRoot, runtime, bundledPython, setupCommand }

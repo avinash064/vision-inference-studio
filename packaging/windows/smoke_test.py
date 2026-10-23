@@ -65,7 +65,7 @@ def main() -> int:
     # 1. Managed runtime from the bundled interpreter.
     bundled = resources / "python" / ("python.exe" if os.name == "nt" else "bin/python3.12")
     started = time.monotonic()
-    setup = subprocess.run([str(bundled), "-I", str(resources / "packaging" / "runtime" / "setup_runtime.py"), "--mode", "install", "--profile", "core", "--app-root", str(resources), "--data-root", str(data), "--app-version", "smoke"], capture_output=True, text=True, encoding="utf-8", errors="replace", creationflags=NO_WINDOW)
+    setup = subprocess.run([str(bundled), "-X", "utf8", "-I", str(resources / "packaging" / "runtime" / "setup_runtime.py"), "--mode", "install", "--profile", "core", "--app-root", str(resources), "--data-root", str(data), "--app-version", "smoke"], capture_output=True, text=True, encoding="utf-8", errors="replace", creationflags=NO_WINDOW)
     (work / "runtime-setup.out").write_text(setup.stdout + setup.stderr, encoding="utf-8")
     runtime_python = data / "runtime" / "python" / ("python.exe" if os.name == "nt" else "bin/python3.12")
     manifest = json.loads((data / "runtime" / "runtime-manifest.json").read_text(encoding="utf-8")) if setup.returncode == 0 else {}

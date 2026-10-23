@@ -39,7 +39,7 @@ test('Windows: managed runtime is a private python.exe; the bundled interpreter 
   assert.equal(paths.bundledPython, 'C:\\Users\\Zoë Smith\\AppData\\Local\\vision_inference_studio\\app-0.6.3\\resources\\python\\python.exe')
   const setup = paths.setupCommand('install')
   assert.equal(setup.command, paths.bundledPython)
-  assert.deepEqual(setup.args.slice(0, 3), ['-I', 'C:\\Users\\Zoë Smith\\AppData\\Local\\vision_inference_studio\\app-0.6.3\\resources\\packaging\\runtime\\setup_runtime.py', '--mode'])
+  assert.deepEqual(setup.args.slice(0, 5), ['-X', 'utf8', '-I', 'C:\\Users\\Zoë Smith\\AppData\\Local\\vision_inference_studio\\app-0.6.3\\resources\\packaging\\runtime\\setup_runtime.py', '--mode'])
   assert.ok(setup.args.includes('C:\\Users\\Zoë Smith\\AppData\\Local\\Vision Inference Studio'), 'data root passed as one argument, spaces intact')
   assert.ok(!setup.args.some((arg) => arg.includes('cmd.exe') || arg === '/c'), 'no shell involved')
 })
