@@ -39,6 +39,8 @@ def request(url: str, token: str, method: str = "GET") -> tuple[int, dict]:
             return response.status, json.loads(response.read() or b"{}")
     except urllib.error.HTTPError as error:
         return error.code, {}
+    except OSError:  # refused/reset: the backend is not listening (exited or never started)
+        return 0, {}
 
 
 def wait_for(predicate, timeout: float, interval: float = 0.5):
@@ -92,7 +94,15 @@ def main() -> int:
         "diagnostics": {key: diagnostics.get(key) for key in ("platform", "architecture", "python", "runtime_source", "python_executable", "cuda_status", "cuda_detail", "runtime_manifest")},
         "families": {name: value.get("status") for name, value in diagnostics.get("families", {}).items()},
         "unauthenticated_status": request(f"{base}/health", "wrong-token")[0],
+        "healthy_within_90s": bool(healthy),
+        "backend_exit_code": backend.poll(),
     }
+    if not report["steps"]["backend"]["ok"]:
+        backend_log.flush()
+        report["steps"]["backend"]["log_tail"] = (work / "backend.out").read_text(encoding="utf-8", errors="replace")[-4000:]
+        backend.kill()
+        backend_log.close()
+        return finish(work, report)
     shutdown_status, _ = request(f"{base}/api/v1/desktop/shutdown", token, method="POST")
     try:
         code = backend.wait(timeout=30)
