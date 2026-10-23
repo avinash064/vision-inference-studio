@@ -215,7 +215,7 @@ def system_metrics():
             "memory_percent": memory.percent,
             "memory_used_gb": round(memory.used / 1024**3, 2),
             "memory_total_gb": round(memory.total / 1024**3, 2),
-            "load": list(os.getloadavg()),
+            "load": list(psutil.getloadavg()),  # os.getloadavg() does not exist on Windows; psutil emulates it
         },
         "gpu": None,
     }

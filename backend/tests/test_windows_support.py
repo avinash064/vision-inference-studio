@@ -272,3 +272,11 @@ def test_runtime_installer_recovers_a_stale_lock(tmp_path):
     assert installer.lock.read_text() == str(os.getpid())
     with pytest.raises(SystemExit, match="already running"):
         installer.acquire_lock()
+
+
+def test_system_metrics_do_not_use_posix_only_load_average(monkeypatch, tmp_path):
+    """os.getloadavg() is missing on Windows (found by the packaged-app smoke test on windows-latest)."""
+    monkeypatch.delattr(os, "getloadavg", raising=False)
+    with _desktop_client(monkeypatch, tmp_path) as client:
+        response = client.get("/api/v1/system/metrics", headers={"X-Vision-Session": "session-token"})
+    assert response.status_code == 200 and len(response.json()["cpu"]["load"]) == 3
