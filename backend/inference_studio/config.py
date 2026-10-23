@@ -74,7 +74,8 @@ class Settings(BaseModel):
         data_dir = Path(os.getenv("VIS_DATA_DIR", root)).expanduser().resolve()
         config_dir = Path(os.getenv("VIS_CONFIG_DIR", root / "config")).expanduser().resolve()
         workspace_dir = Path(os.getenv("VIS_WORKSPACE_DIR", data_dir / "workspace")).expanduser().resolve()
-        default_chainner = root.parent / "src"
+        # Vendored snapshot first (third_party/chainner, GPL-3.0); the monorepo sibling src/ is a fallback.
+        default_chainner = next((path for path in (root / "third_party" / "chainner" / "src", root.parent / "src") if path.is_dir()), root.parent / "src")
         chainner_value = os.getenv("VIS_CHAINNER_SRC_DIR")
         hub_root = Path(os.getenv("PUBLIC_HUB_CACHE", workspace_dir / "public-hub")).expanduser().resolve()
         recipe_roots = [Path(value).expanduser().resolve() for value in os.getenv("VIS_RECIPE_INPUT_ROOTS", "").split(os.pathsep) if value]

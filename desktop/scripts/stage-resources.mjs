@@ -34,12 +34,15 @@ const ignoreGenerated = (source) => {
 
 fs.cpSync(path.join(projectRoot, 'backend', 'inference_studio'), path.join(target, 'backend', 'inference_studio'), { recursive: true, filter: ignoreGenerated })
 fs.cpSync(path.join(projectRoot, 'config'), path.join(target, 'config'), { recursive: true, filter: ignoreGenerated })
-fs.cpSync(path.join(projectRoot, 'third_party'), path.join(target, 'third_party'), { recursive: true, filter: ignoreGenerated })
+// third_party/chainner is staged separately below (as chainner/src); don't ship it twice.
+const vendoredChainner = path.join(projectRoot, 'third_party', 'chainner')
+fs.cpSync(path.join(projectRoot, 'third_party'), path.join(target, 'third_party'), { recursive: true, filter: (source) => ignoreGenerated(source) && !source.startsWith(vendoredChainner) })
 // VIS_FRONTEND_DIST lets a build use a production bundle written outside frontend/dist.
 fs.cpSync(process.env.VIS_FRONTEND_DIST || path.join(projectRoot, 'frontend', 'dist'), path.join(target, 'dist'), { recursive: true })
 // Prebuilt groundingdino/clip wheels (setup-runtime.sh installs them offline) and the chaiNNer source.
 fs.cpSync(path.join(desktopRoot, 'wheels'), path.join(target, 'wheels'), { recursive: true })
-const chainnerSrc = process.env.VIS_CHAINNER_SRC_DIR || path.join(projectRoot, '..', 'src')
+// Vendored snapshot (third_party/chainner, GPL-3.0) first; the monorepo's sibling src/ remains a fallback.
+const chainnerSrc = process.env.VIS_CHAINNER_SRC_DIR || [path.join(vendoredChainner, 'src'), path.join(projectRoot, '..', 'src')].find((candidate) => fs.existsSync(candidate)) || path.join(vendoredChainner, 'src')
 if (!fs.existsSync(chainnerSrc)) throw new Error(`chaiNNer source not found at ${chainnerSrc} (set VIS_CHAINNER_SRC_DIR)`)
 fs.cpSync(chainnerSrc, path.join(target, 'chainner', 'src'), { recursive: true, filter: ignoreGenerated })
 fs.mkdirSync(path.join(target, 'packaging'), { recursive: true })

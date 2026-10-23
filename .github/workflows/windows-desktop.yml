@@ -18,9 +18,6 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  # chaiNNer backend source shipped with the app (tracked in the public monorepo), pinned for reproducibility.
-  CHAINNER_REPOSITORY: avinash064/auto-annotation
-  CHAINNER_REF: 14fbc5bbcd1b4bd26ae478beb90639c6b4611f0e
   PYTHONUTF8: "1"
 
 jobs:
@@ -34,15 +31,6 @@ jobs:
         shell: pwsh
     steps:
       - uses: actions/checkout@v4
-
-      - name: Fetch pinned chaiNNer source
-        uses: actions/checkout@v4
-        with:
-          repository: ${{ env.CHAINNER_REPOSITORY }}
-          ref: ${{ env.CHAINNER_REF }}
-          path: chainner-upstream
-          sparse-checkout: src
-          sparse-checkout-cone-mode: false
 
       - uses: actions/setup-node@v4
         with:
@@ -100,7 +88,6 @@ jobs:
       - name: Package Electron app and Squirrel installer
         working-directory: desktop
         env:
-          VIS_CHAINNER_SRC_DIR: ${{ github.workspace }}/chainner-upstream/src
           VIS_FRONTEND_DIST: ${{ github.workspace }}/frontend/dist
           WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
         run: |
