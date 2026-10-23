@@ -69,7 +69,9 @@ def main() -> int:
     (work / "runtime-setup.out").write_text(setup.stdout + setup.stderr, encoding="utf-8")
     runtime_python = data / "runtime" / "python" / ("python.exe" if os.name == "nt" else "bin/python3.12")
     manifest = json.loads((data / "runtime" / "runtime-manifest.json").read_text(encoding="utf-8")) if setup.returncode == 0 else {}
-    report["steps"]["runtime_install"] = {"ok": setup.returncode == 0 and runtime_python.is_file(), "seconds": round(time.monotonic() - started, 1), "manifest": {key: manifest.get(key) for key in ("platform", "arch", "python", "runtime_version", "profile")}}
+    report["steps"]["runtime_install"] = {"ok": setup.returncode == 0 and runtime_python.is_file(), "exit_code": setup.returncode, "seconds": round(time.monotonic() - started, 1), "manifest": {key: manifest.get(key) for key in ("platform", "arch", "python", "runtime_version", "profile")}}
+    if not report["steps"]["runtime_install"]["ok"]:
+        report["steps"]["runtime_install"]["output_tail"] = (setup.stdout + setup.stderr)[-4000:]
     if not report["steps"]["runtime_install"]["ok"]:
         return finish(work, report)
 

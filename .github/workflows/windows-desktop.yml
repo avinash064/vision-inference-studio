@@ -116,6 +116,8 @@ jobs:
           New-Item -ItemType Directory -Force release-windows | Out-Null
           Get-ChildItem desktop/out/make -Recurse -File -Include *.exe,*.nupkg,*.zip,RELEASES -ErrorAction SilentlyContinue | ForEach-Object { Copy-Item $_.FullName release-windows/ }
           Copy-Item "$env:RUNNER_TEMP/vis-smoke/smoke-report.json" release-windows/ -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force release-windows/smoke-logs | Out-Null
+          Get-ChildItem "$env:RUNNER_TEMP/vis-smoke" -Recurse -File -Include *.out,*.log -ErrorAction SilentlyContinue | ForEach-Object { Copy-Item $_.FullName release-windows/smoke-logs/ }
           Copy-Item test-results/backend-windows.xml release-windows/ -ErrorAction SilentlyContinue
           Push-Location release-windows
           Get-ChildItem -File | Where-Object { $_.Name -match '\.(exe|nupkg|zip)$|^RELEASES$' } | Select-Object -ExpandProperty Name | Sort-Object | ForEach-Object { "{0}  {1}" -f (Get-FileHash $_ -Algorithm SHA256).Hash.ToLower(), $_ } | Set-Content -Encoding ascii SHA256SUMS
